@@ -31,10 +31,10 @@ class InstantExecutionAndroidIntegrationTest extends AbstractInstantExecutionInt
         executer.noDeprecationChecks()
     }
 
-    def "android 3.5 minimal build assembleDebug"() {
+    def "android 3.6 minimal build assembleDebug"() {
 
         executer.beforeExecute {
-            inDirectory(file("android-3.5-mini"))
+            inDirectory(file("android-3.6-mini"))
         }
         def instantExecution = newInstantExecutionFixture()
 
@@ -42,36 +42,37 @@ class InstantExecutionAndroidIntegrationTest extends AbstractInstantExecutionInt
         def tasks = [
             ":app:preBuild",
             ":app:preDebugBuild",
-            // ":app:compileDebugAidl",
+            ":app:compileDebugAidl",
             ":app:compileDebugRenderscript",
             ":app:checkDebugManifest",
             ":app:generateDebugBuildConfig",
-            ":app:mainApkListPersistenceDebug",
+            ":app:javaPreCompileDebug",
+            // ":app:mainApkListPersistenceDebug",
             ":app:generateDebugResValues",
             ":app:generateDebugResources",
+            ":app:mergeDebugResources",
             // ":app:createDebugCompatibleScreenManifests",
+            ":app:extractDeepLinksDebug",
             // ":app:processDebugManifest",
-            // ":app:mergeDebugShaders",
-            // ":app:compileDebugShaders",
-            // ":app:generateDebugAssets",
-            // ":app:mergeDebugAssets",
-            ":app:processDebugJavaRes",
-            // ":app:checkDebugDuplicateClasses",
-            ":app:validateSigningDebug",
-            // ":app:signingConfigWriterDebug",
-            // ":app:mergeDebugJniLibFolders",
-            // ":app:javaPreCompileDebug",
-            // ":app:mergeDebugResources",
             // ":app:processDebugResources",
             // ":app:compileDebugJavaWithJavac",
             // ":app:compileDebugSources",
-            // ":app:mergeDebugNativeLibs",
-            // ":app:transformClassesWithDexBuilderForDebug",
-            // ":app:mergeLibDexDebug",
-            // ":app:stripDebugDebugSymbols",
-            // ":app:mergeDebugJavaResource",
-            // ":app:mergeExtDexDebug",
+            ":app:mergeDebugShaders",
+            ":app:compileDebugShaders",
+            ":app:generateDebugAssets",
+            ":app:mergeDebugAssets",
+            ":app:processDebugJavaRes",
+            ":app:mergeDebugJavaResource",
+            ":app:checkDebugDuplicateClasses",
+            ":app:mergeExtDexDebug",
+            ":app:mergeLibDexDebug",
+            // ":app:dexBuilderDebug",
             // ":app:mergeProjectDexDebug",
+            ":app:validateSigningDebug",
+            ":app:signingConfigWriterDebug",
+            ":app:mergeDebugJniLibFolders",
+            ":app:mergeDebugNativeLibs",
+            ":app:stripDebugDebugSymbols",
             // ":app:packageDebug",
             // ":app:assembleDebug",
         ]
