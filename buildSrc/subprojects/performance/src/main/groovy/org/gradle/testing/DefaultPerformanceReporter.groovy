@@ -19,8 +19,10 @@ package org.gradle.testing
 
 import groovy.transform.CompileStatic
 import org.gradle.api.Action
+import org.gradle.api.GradleException
 import org.gradle.api.internal.ProcessOperations
 import org.gradle.api.internal.file.FileOperations
+import org.gradle.process.ExecResult
 import org.gradle.process.JavaExecSpec
 
 import javax.inject.Inject
@@ -30,8 +32,6 @@ import javax.inject.Inject
  */
 @CompileStatic
 class DefaultPerformanceReporter implements PerformanceReporter {
-    private static final String TC_URL = "https://builds.gradle.org/viewLog.html?buildId="
-
     String reportGeneratorClass
 
     FileOperations fileOperations
@@ -53,8 +53,9 @@ class DefaultPerformanceReporter implements PerformanceReporter {
         performanceTest.generateResultsJson()
 
         fileOperations.delete(performanceTest.reportDir)
+        ByteArrayOutputStream os = new ByteArrayOutputStream()
 
-        processOperations.javaexec(new Action<JavaExecSpec>() {
+        ExecResult result = processOperations.javaexec(new Action<JavaExecSpec>() {
             void execute(JavaExecSpec spec) {
                 spec.setMain(reportGeneratorClass)
                 spec.args(performanceTest.reportDir.path, performanceTest.resultsJson.path, projectName)
@@ -63,10 +64,18 @@ class DefaultPerformanceReporter implements PerformanceReporter {
                 spec.systemProperty("org.gradle.performance.execution.branch", performanceTest.branchName)
                 spec.systemProperty("githubToken", githubToken)
                 spec.setClasspath(performanceTest.classpath)
+
+                spec.ignoreExitValue = true
                 spec.setStandardOutput(System.out)
-                spec.setErrorOutput(System.err)
+                spec.setErrorOutput(os)
             }
         })
-    }
 
+        if (result.exitValue != 0) {
+            // WARNING: All illegal access operations will be denied in a future release
+            // SLF4J: Class path contains multiple SLF4J bindings.
+            String message = os.toString().readLines().collect { !it.contains("WARNING: ") && !it.contains("SLF4J") }.join("\n")
+            throw new GradleException("Performance test failed: " + message)
+        }
+    }
 }
