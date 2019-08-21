@@ -31,6 +31,8 @@ import javax.annotation.Nullable;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Common base class for the lazy versions of {@link ModuleComponentResolveMetadata} implementations.
@@ -89,13 +91,37 @@ public abstract class AbstractLazyModuleComponentResolveMetadata extends Abstrac
 
     private Optional<ImmutableList<? extends ConfigurationMetadata>> buildVariantsForGraphTraversal(List<? extends ComponentVariant> variants) {
         if (variants.isEmpty()) {
-            return maybeDeriveVariants();
+            Optional<ImmutableList<? extends ConfigurationMetadata>> derived = maybeDeriveVariants();
+            return addVariantsByRule(derived);
         }
-        ImmutableList.Builder<ConfigurationMetadata> configurations = new ImmutableList.Builder<ConfigurationMetadata>();
+        ImmutableList.Builder<ConfigurationMetadata> configurations = new ImmutableList.Builder<>();
         for (ComponentVariant variant : variants) {
             configurations.add(new LazyVariantBackedConfigurationMetadata(getId(), variant, getAttributes(), getAttributesFactory(), variantMetadataRules));
         }
-        return Optional.<ImmutableList<? extends ConfigurationMetadata>>of(configurations.build());
+        return addVariantsByRule(Optional.of(configurations.build()));
+
+    }
+
+    private Optional<ImmutableList<? extends ConfigurationMetadata>> addVariantsByRule(Optional<ImmutableList<? extends ConfigurationMetadata>> variants) {
+        if (variantMetadataRules.getAdditionalVariants().isEmpty()) {
+            return variants;
+        }
+        Map<String, ConfigurationMetadata> byName = variants.or(ImmutableList.of()).stream().collect(Collectors.toMap(ConfigurationMetadata::getName, Function.identity()));
+        ImmutableList.Builder<ConfigurationMetadata> builder = new ImmutableList.Builder<>();
+        if (variants.isPresent()) {
+            builder.addAll(variants.get());
+        }
+        for (Map.Entry<String, String> variantName : variantMetadataRules.getAdditionalVariants().entrySet()) {
+            DefaultConfigurationMetadata base = (DefaultConfigurationMetadata) byName.get(variantName.getValue());
+            ConfigurationMetadata variant;
+            if (base == null) {
+                variant = new DefaultConfigurationMetadata(getId(), variantName.getKey(), true, true, ImmutableSet.of(), ImmutableList.of(), variantMetadataRules, ImmutableList.of(), getAttributes());
+            } else {
+                variant = base.mutate().withName(variantName.getKey()).withArtifacts(ImmutableList.of()).build();
+            }
+            builder.add(variant);
+        }
+        return Optional.of(builder.build());
     }
 
     @Override

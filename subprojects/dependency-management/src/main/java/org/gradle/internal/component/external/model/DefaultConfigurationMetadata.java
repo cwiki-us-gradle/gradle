@@ -40,6 +40,7 @@ public class DefaultConfigurationMetadata extends AbstractConfigurationMetadata 
     private final VariantMetadataRules componentMetadataRules;
 
     private List<ModuleDependencyMetadata> calculatedDependencies;
+    private ImmutableList<? extends ModuleComponentArtifactMetadata> calculatedArtifacts;
 
     private final ImmutableAttributes componentLevelAttributes;
 
@@ -139,6 +140,14 @@ public class DefaultConfigurationMetadata extends AbstractConfigurationMetadata 
         }
         filteredConfigDependencies = filtered;
         return filteredConfigDependencies;
+    }
+
+    @Override
+    public ImmutableList<? extends ModuleComponentArtifactMetadata> getArtifacts() {
+        if (calculatedArtifacts == null) {
+            calculatedArtifacts = componentMetadataRules.applyArtifactsMetadataRules(this, super.getArtifacts(), getComponentId());
+        }
+        return calculatedArtifacts;
     }
 
     @Override
@@ -263,6 +272,11 @@ public class DefaultConfigurationMetadata extends AbstractConfigurationMetadata 
 
         Builder withName(String name) {
             this.name = name;
+            return this;
+        }
+
+        public Builder withArtifacts(ImmutableList<? extends ModuleComponentArtifactMetadata> artifacts) {
+            this.artifacts = artifacts;
             return this;
         }
 
