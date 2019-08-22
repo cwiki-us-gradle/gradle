@@ -106,7 +106,6 @@ class Codecs(
         bind(BYTE_SERIALIZER)
         bind(FLOAT_SERIALIZER)
         bind(DOUBLE_SERIALIZER)
-        bind(FileTreeCodec(fileSetSerializer, directoryFileTreeFactory))
         bind(FILE_SERIALIZER)
         bind(PATH_SERIALIZER)
         bind(ClassCodec)
@@ -127,12 +126,14 @@ class Codecs(
         bind(linkedHashMapCodec)
         bind(hashMapCodec)
         bind(treeMapCodec)
+        bind(concurrentHashMapCodec)
         bind(ImmutableMapCodec)
 
         bind(arrayCodec)
         bind(BrokenValueCodec)
 
         bind(ListPropertyCodec)
+        bind(SetPropertyCodec)
         bind(MapPropertyCodec)
         bind(DirectoryPropertyCodec(filePropertyFactory))
         bind(RegularFilePropertyCodec(filePropertyFactory))
@@ -142,6 +143,7 @@ class Codecs(
         bind(ListenerBroadcastCodec(listenerManager))
         bind(LoggerCodec)
 
+        bind(FileTreeCodec(fileSetSerializer, directoryFileTreeFactory))
         bind(ConfigurableFileCollectionCodec(fileCollectionFactory))
         bind(FileCollectionCodec(fileCollectionFactory))
 
@@ -171,6 +173,7 @@ class Codecs(
         bind(ownerService<WorkerExecutor>())
 
         bind(SerializableWriteObjectCodec())
+        bind(SerializableWriteReplaceCodec())
 
         // This protects the BeanCodec against StackOverflowErrors but
         // we can still get them for the other codecs, for instance,

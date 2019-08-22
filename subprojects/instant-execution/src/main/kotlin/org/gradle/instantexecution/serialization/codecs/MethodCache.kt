@@ -16,9 +16,33 @@
 
 package org.gradle.instantexecution.serialization.codecs
 
+import org.gradle.internal.reflect.ClassInspector
 
-class BrokenValue(val failure: Throwable) {
-    fun rethrow(): Nothing {
-        throw failure
+import java.lang.reflect.Method
+
+
+internal
+class MethodCache(
+
+    private
+    val predicate: Method.() -> Boolean
+
+) {
+    private
+    val methodCache = hashMapOf<Class<*>, Method?>()
+
+    fun forObject(value: Any) =
+        forClass(value.javaClass)
+
+    fun forClass(type: Class<*>) = methodCache.computeIfAbsent(type) {
+        it.firstMatchingMethodOrNull(predicate)
     }
 }
+
+
+internal
+fun Class<*>.firstMatchingMethodOrNull(predicate: Method.() -> Boolean): Method? =
+    ClassInspector.inspect(this)
+        .allMethods
+        .find(predicate)
+        ?.apply { isAccessible = true }
