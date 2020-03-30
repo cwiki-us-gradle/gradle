@@ -13,32 +13,33 @@
 // limitations under the License.
 
 [[what_is_gradle]]
-= What is Gradle?
+= 什么是 什么是 Gradle？
 
 [[gradle_overview]]
-== Overview
+== 概述
 
-Gradle is an open-source https://en.wikipedia.org/wiki/Build_automation[build automation] tool that is designed to be flexible enough to build almost any type of software. The following is a high-level overview of some of its most important features:
+Gradle 是一个开源的 https://en.wikipedia.org/wiki/Build_automation[构建自动化（build automation）] 工具。同时 Gradle 被设计得足够灵活可以被用来构建几乎任何类型的软件。
+下面的一些特性是从宏观上来对 Gradle 的一些特性进行阐述：
 
-High performance::
+高性能::
 Gradle avoids unnecessary work by only running the tasks that need to run because their inputs or outputs have changed. You can also use a build cache to enable the reuse of task outputs from previous runs or even from a different machine (with a shared build cache).
 +
 There are many other optimizations that Gradle implements and the development team continually work to improve Gradle's performance.
-JVM foundation::
+基于 JVM::
 Gradle runs on the JVM and you must have a Java Development Kit (JDK) installed to use it. This is a bonus for users familiar with the Java platform as you can use the standard Java APIs in your build logic, such as custom task types and plugins. It also makes it easy to run Gradle on different platforms.
 +
 Note that Gradle isn't limited to building just JVM projects, and it even comes packaged with support for building native projects.
-Conventions::
+可转换::
 Gradle takes a leaf out of Maven's book and makes common types of projects — such as Java projects — easy to build by implementing conventions. Apply the appropriate plugins and you can easily end up with slim build scripts for many projects. But these conventions don't limit you: Gradle allows you to override them, add your own tasks, and make many other customizations to your convention-based builds.
-Extensibility::
+可扩展::
 You can readily extend Gradle to provide your own task types or even build model. See the Android build support for an example of this: it adds many new build concepts such as flavors and build types.
-IDE support::
+支持 IDE::
 Several major IDEs allow you to import Gradle builds and interact with them: Android Studio, IntelliJ IDEA, Eclipse, and NetBeans. Gradle also has support for generating the solution files required to load a project into Visual Studio.
-Insight::
+自扫描和修复::
 https://scans.gradle.com/[Build scans] provide extensive information about a build run that you can use to identify build issues. They are particularly good at helping you to identify problems with a build's performance. You can also share build scans with others, which is particularly useful if you need ask for advice in fixing an issue with the build.
 
 [[five_things]]
-== Five things you need to know about Gradle
+== 你需要知道 Gradle 的五件事情
 
 Gradle is a flexible and powerful build tool that can easily feel intimidating when you first start. However, understanding the following core principles will make Gradle much more approachable and you will become adept with the tool before you know it.
 
