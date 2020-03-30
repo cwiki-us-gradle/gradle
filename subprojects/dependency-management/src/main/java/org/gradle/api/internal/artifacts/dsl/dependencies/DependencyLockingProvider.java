@@ -17,7 +17,10 @@
 package org.gradle.api.internal.artifacts.dsl.dependencies;
 
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
+import org.gradle.api.artifacts.dsl.LockMode;
+import org.gradle.api.provider.Property;
 
+import java.io.File;
 import java.util.Set;
 
 public interface DependencyLockingProvider {
@@ -25,4 +28,10 @@ public interface DependencyLockingProvider {
     DependencyLockingState loadLockState(String configurationName);
 
     void persistResolvedDependencies(String configurationName, Set<ModuleComponentIdentifier> resolutionResult, Set<ModuleComponentIdentifier> changingResolvedModules);
+
+    Property<LockMode> getLockMode();
+
+    void buildFinished();
+
+    Property<File> getLockFile();
 }

@@ -16,62 +16,57 @@
 
 package org.gradle.instantexecution.serialization.beans
 
-import groovy.lang.GroovyObjectSupport
 import org.gradle.api.GradleException
+import org.gradle.instantexecution.extensions.unsafeLazy
 import org.gradle.instantexecution.serialization.IsolateContext
 import org.gradle.instantexecution.serialization.PropertyKind
 import org.gradle.instantexecution.serialization.PropertyTrace
 import org.gradle.instantexecution.serialization.ReadContext
 import org.gradle.instantexecution.serialization.logPropertyInfo
 import org.gradle.instantexecution.serialization.logPropertyWarning
+import org.gradle.instantexecution.serialization.ownerService
 import org.gradle.instantexecution.serialization.withPropertyTrace
+import org.gradle.internal.instantiation.InstantiationScheme
+import org.gradle.internal.instantiation.InstantiatorFactory
 import org.gradle.internal.reflect.JavaReflectionUtil
-import sun.reflect.ReflectionFactory
+import org.gradle.internal.service.ServiceRegistry
 import java.io.IOException
-import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.util.concurrent.Callable
 import java.util.function.Supplier
 
 
 class BeanPropertyReader(
-    private val beanType: Class<*>
+    private val beanType: Class<*>,
+    private val constructors: BeanConstructors,
+    instantiatorFactory: InstantiatorFactory
 ) : BeanStateReader {
+    // TODO should use the same scheme as the original bean
+    private
+    val instantiationScheme: InstantiationScheme = instantiatorFactory.decorateScheme()
 
     private
-    val setterByFieldName = relevantStateOf(beanType).associateBy(
-        { it.name },
-        { setterFor(it) }
-    )
+    val fieldSetters = relevantStateOf(beanType).map { Pair(it.name, setterFor(it)) }
 
     private
-    val constructorForSerialization by lazy {
-        // Initialize the super types of the bean type, as this does not seem to happen via the generated constructors
-        maybeInit(beanType)
-        if (GroovyObjectSupport::class.java.isAssignableFrom(beanType)) {
-            // Run the `GroovyObjectSupport` constructor, to initialize the metadata field
-            newConstructorForSerialization(beanType, GroovyObjectSupport::class.java.getConstructor())
-        } else {
-            newConstructorForSerialization(beanType, Object::class.java.getConstructor())
-        }
+    val constructorForSerialization by unsafeLazy {
+        constructors.constructorForSerialization(beanType)
     }
 
-    private
-    fun maybeInit(beanType: Class<*>) {
-        val superclass = beanType.superclass
-        if (superclass?.classLoader != null) {
-            Class.forName(superclass.name, true, superclass.classLoader)
-            maybeInit(superclass)
-        }
-    }
-
-    override suspend fun ReadContext.newBean() =
+    override suspend fun ReadContext.newBean(generated: Boolean) = if (generated) {
+        val services = ownerService<ServiceRegistry>()
+        instantiationScheme.withServices(services).deserializationInstantiator().newInstance(beanType, Any::class.java)
+    } else {
         constructorForSerialization.newInstance()
+    }
 
     override suspend fun ReadContext.readStateOf(bean: Any) {
-        readEachProperty(PropertyKind.Field) { fieldName, fieldValue ->
-            val setter = setterByFieldName.getValue(fieldName)
-            setter(bean, fieldValue)
+        for (field in fieldSetters) {
+            val fieldName = field.first
+            val setter = field.second
+            readPropertyValue(PropertyKind.Field, fieldName) { fieldValue ->
+                setter(bean, fieldValue)
+            }
         }
     }
 
@@ -107,40 +102,27 @@ class BeanPropertyReader(
     fun isAssignableTo(type: Class<*>, value: Any?) =
         type.isInstance(value) ||
             type.isPrimitive && JavaReflectionUtil.getWrapperTypeForPrimitiveType(type).isInstance(value)
-
-    // TODO: What about the runtime decorations a serialized bean might have had at configuration time?
-    private
-    fun newConstructorForSerialization(beanType: Class<*>, constructor: Constructor<*>): Constructor<out Any> =
-        ReflectionFactory.getReflectionFactory().newConstructorForSerialization(beanType, constructor)
 }
 
 
 /**
  * Reads a sequence of properties written with [writingProperties].
  */
-suspend fun ReadContext.readEachProperty(kind: PropertyKind, action: (String, Any?) -> Unit) {
-    while (true) {
-
-        val name = readString()
-        if (name.isEmpty()) {
-            break
-        }
-
-        withPropertyTrace(kind, name) {
-            val value =
-                try {
-                    read().also {
-                        logPropertyInfo("deserialize", it)
-                    }
-                } catch (passThrough: IOException) {
-                    throw passThrough
-                } catch (passThrough: GradleException) {
-                    throw passThrough
-                } catch (e: Exception) {
-                    throw GradleException("Could not load the value of $trace.", e)
+suspend fun ReadContext.readPropertyValue(kind: PropertyKind, name: String, action: (Any?) -> Unit) {
+    withPropertyTrace(kind, name) {
+        val value =
+            try {
+                read().also {
+                    logPropertyInfo("deserialize", it)
                 }
-            action(name, value)
-        }
+            } catch (passThrough: IOException) {
+                throw passThrough
+            } catch (passThrough: GradleException) {
+                throw passThrough
+            } catch (e: Exception) {
+                throw GradleException("Could not load the value of $trace.", e)
+            }
+        action(value)
     }
 }
 

@@ -19,6 +19,7 @@ package org.gradle.kotlin.dsl.provider.plugins.precompiled.tasks
 import org.gradle.api.Project
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileCollection
+import org.gradle.api.file.ProjectLayout
 import org.gradle.api.internal.artifacts.dependencies.DefaultSelfResolvingDependency
 import org.gradle.api.internal.file.FileCollectionFactory
 import org.gradle.api.internal.initialization.ScriptHandlerInternal
@@ -38,7 +39,7 @@ import org.gradle.internal.classpath.DefaultClassPath
 import org.gradle.internal.concurrent.CompositeStoppable.stoppable
 import org.gradle.internal.exceptions.LocationAwareException
 import org.gradle.internal.hash.HashCode
-import org.gradle.internal.resource.BasicTextResourceLoader
+import org.gradle.internal.resource.DefaultTextFileResourceLoader
 
 import org.gradle.kotlin.dsl.accessors.AccessorFormats
 import org.gradle.kotlin.dsl.accessors.TypedProjectSchema
@@ -46,8 +47,8 @@ import org.gradle.kotlin.dsl.accessors.buildAccessorsFor
 import org.gradle.kotlin.dsl.accessors.hashCodeFor
 import org.gradle.kotlin.dsl.accessors.schemaFor
 
+import org.gradle.kotlin.dsl.concurrent.AsyncIOScopeFactory
 import org.gradle.kotlin.dsl.concurrent.IO
-import org.gradle.kotlin.dsl.concurrent.withAsynchronousIO
 import org.gradle.kotlin.dsl.concurrent.writeFile
 
 import org.gradle.kotlin.dsl.precompile.PrecompiledScriptDependenciesResolver
@@ -57,8 +58,8 @@ import org.gradle.kotlin.dsl.provider.plugins.precompiled.scriptPluginFilesOf
 
 import org.gradle.kotlin.dsl.support.KotlinScriptType
 import org.gradle.kotlin.dsl.support.serviceOf
+import org.gradle.kotlin.dsl.support.useToRun
 
-import org.gradle.plugin.management.internal.DefaultPluginRequests
 import org.gradle.plugin.management.internal.PluginRequestInternal
 import org.gradle.plugin.management.internal.PluginRequests
 
@@ -71,10 +72,28 @@ import org.gradle.testfixtures.ProjectBuilder
 import java.io.File
 import java.net.URLClassLoader
 import java.nio.file.Files
+import javax.inject.Inject
 
 
 @CacheableTask
-abstract class GeneratePrecompiledScriptPluginAccessors : ClassPathSensitiveCodeGenerationTask() {
+abstract class GeneratePrecompiledScriptPluginAccessors @Inject internal constructor(
+
+    private
+    val projectLayout: ProjectLayout,
+
+    private
+    val classLoaderScopeRegistry: ClassLoaderScopeRegistry,
+
+    private
+    val asyncIOScopeFactory: AsyncIOScopeFactory
+
+) : ClassPathSensitiveCodeGenerationTask() {
+
+    private
+    val gradleUserHomeDir = project.gradle.gradleUserHomeDir
+
+    private
+    val projectDesc = project.toString()
 
     @get:Classpath
     lateinit var runtimeClassPathFiles: FileCollection
@@ -115,7 +134,7 @@ abstract class GeneratePrecompiledScriptPluginAccessors : ClassPathSensitiveCode
 
         val projectPlugins = selectProjectPlugins()
         if (projectPlugins.isNotEmpty()) {
-            withAsynchronousIO(project) {
+            asyncIOScopeFactory.newScope().useToRun {
                 generateTypeSafeAccessorsFor(projectPlugins)
             }
         }
@@ -213,7 +232,7 @@ abstract class GeneratePrecompiledScriptPluginAccessors : ClassPathSensitiveCode
     private
     fun validationErrorFor(pluginRequest: PluginRequestInternal): String? {
         if (pluginRequest.version != null) {
-            return "Invalid plugin request $pluginRequest. Plugin requests from precompiled scripts must not include a version number. Please remove the version from the offending request and make sure the module containing the requested plugin '${pluginRequest.id}' is an implementation dependency of $project."
+            return "Invalid plugin request $pluginRequest. Plugin requests from precompiled scripts must not include a version number. Please remove the version from the offending request and make sure the module containing the requested plugin '${pluginRequest.id}' is an implementation dependency of $projectDesc."
         }
         // TODO:kotlin-dsl validate apply false
         return null
@@ -230,7 +249,6 @@ abstract class GeneratePrecompiledScriptPluginAccessors : ClassPathSensitiveCode
             pluginRequests
         }
 
-
     private
     fun pluginRequestCollectorFor(plugin: PrecompiledScriptPlugin) =
         PluginRequestCollector(scriptSourceFor(plugin))
@@ -238,7 +256,7 @@ abstract class GeneratePrecompiledScriptPluginAccessors : ClassPathSensitiveCode
     private
     fun scriptSourceFor(plugin: PrecompiledScriptPlugin) =
         TextResourceScriptSource(
-            BasicTextResourceLoader().loadFile("Precompiled script plugin", plugin.scriptFile)
+            DefaultTextFileResourceLoader().loadFile("Precompiled script plugin", plugin.scriptFile)
         )
 
     private
@@ -252,11 +270,8 @@ abstract class GeneratePrecompiledScriptPluginAccessors : ClassPathSensitiveCode
     fun createPluginsClassLoader(): ClassLoader =
         URLClassLoader(
             compiledPluginsClassPath().asURLArray,
-            classLoaderScopeRegistry().coreAndPluginsScope.localClassLoader
+            classLoaderScopeRegistry.coreAndPluginsScope.localClassLoader
         )
-
-    private
-    fun classLoaderScopeRegistry() = project.serviceOf<ClassLoaderScopeRegistry>()
 
     private
     fun compiledPluginsClassPath() =
@@ -268,7 +283,7 @@ abstract class GeneratePrecompiledScriptPluginAccessors : ClassPathSensitiveCode
     ): Map<HashedProjectSchema, List<PrecompiledScriptPlugin>> {
 
         val schemaBuilder = SyntheticProjectSchemaBuilder(
-            gradleUserHomeDir = project.gradle.gradleUserHomeDir,
+            gradleUserHomeDir = gradleUserHomeDir,
             rootProjectDir = uniqueTempDirectory(),
             rootProjectClassPath = (classPathFiles + runtimeClassPathFiles).files
         )
@@ -315,7 +330,7 @@ abstract class GeneratePrecompiledScriptPluginAccessors : ClassPathSensitiveCode
 
     private
     fun projectRelativePathOf(scriptPlugin: PrecompiledScriptPlugin) =
-        project.relativePath(scriptPlugin.scriptFile)
+        scriptPlugin.scriptFile.toRelativeString(projectLayout.projectDirectory.asFile)
 
     private
     fun IO.writeTypeSafeAccessorsFor(hashedSchema: HashedProjectSchema) {
@@ -380,7 +395,7 @@ class SyntheticProjectSchemaBuilder(
 
         addScriptClassPathDependencyTo(project, rootProjectClassPath)
 
-        applyPluginsTo(project, DefaultPluginRequests.EMPTY)
+        applyPluginsTo(project, PluginRequests.EMPTY)
 
         return project
     }

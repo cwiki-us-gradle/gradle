@@ -26,7 +26,6 @@ import org.gradle.api.internal.artifacts.dependencies.DefaultImmutableVersionCon
 import org.gradle.api.internal.attributes.ImmutableAttributesFactory;
 import org.gradle.internal.component.external.model.DefaultModuleComponentSelector;
 import org.gradle.internal.component.external.model.GradleDependencyMetadata;
-import org.gradle.internal.component.model.ExcludeMetadata;
 import org.gradle.internal.reflect.Instantiator;
 import org.gradle.internal.typeconversion.NotationParser;
 
@@ -55,7 +54,7 @@ public abstract class AbstractDependenciesMetadataAdapter<T extends DependencyMe
 
     protected abstract boolean isConstraint();
 
-    protected abstract boolean isInheriting(T details);
+    protected abstract boolean isEndorsingStrictVersions(T details);
 
     @Override
     public T get(int index) {
@@ -116,6 +115,6 @@ public abstract class AbstractDependenciesMetadataAdapter<T extends DependencyMe
     private org.gradle.internal.component.model.DependencyMetadata toDependencyMetadata(T details) {
         // TODO: CC make capabilities accessible to rules
         ModuleComponentSelector selector = DefaultModuleComponentSelector.newSelector(details.getModule(), DefaultImmutableVersionConstraint.of(details.getVersionConstraint()), details.getAttributes(), ImmutableList.of());
-        return new GradleDependencyMetadata(selector, Collections.<ExcludeMetadata>emptyList(), isConstraint(), isInheriting(details), details.getReason(), false);
+        return new GradleDependencyMetadata(selector, Collections.emptyList(), isConstraint(), isEndorsingStrictVersions(details), details.getReason(), false, null);
     }
 }

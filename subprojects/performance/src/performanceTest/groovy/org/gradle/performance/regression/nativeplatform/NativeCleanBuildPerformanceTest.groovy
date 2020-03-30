@@ -17,15 +17,15 @@
 package org.gradle.performance.regression.nativeplatform
 
 import org.gradle.performance.AbstractCrossVersionGradleProfilerPerformanceTest
-import org.gradle.performance.categories.PerformanceExperiment
+import org.gradle.performance.categories.SlowPerformanceRegressionTest
 import org.junit.experimental.categories.Category
 import spock.lang.Unroll
 
-@Category(PerformanceExperiment)
+@Category(SlowPerformanceRegressionTest)
 class NativeCleanBuildPerformanceTest extends AbstractCrossVersionGradleProfilerPerformanceTest {
     def setup() {
-        runner.minimumVersion = '4.1' // minimum version that contains new C++ plugins
-        runner.targetVersions = ["5.7-20190722220035+0000"]
+        runner.minimumBaseVersion = '4.1' // minimum version that contains new C++ plugins
+        runner.targetVersions = ["6.2-20200108160029+0000"]
     }
 
     @Unroll

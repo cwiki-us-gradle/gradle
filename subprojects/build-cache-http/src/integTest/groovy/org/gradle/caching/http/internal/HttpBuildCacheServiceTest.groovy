@@ -52,7 +52,7 @@ class HttpBuildCacheServiceTest extends Specification {
     @Rule
     HttpServer server = new HttpServer()
     @Rule
-    TestNameTestDirectoryProvider tempDir = new TestNameTestDirectoryProvider()
+    TestNameTestDirectoryProvider tempDir = new TestNameTestDirectoryProvider(getClass())
 
     BuildCacheService cache
     BuildCacheServiceFactory.Describer buildCacheDescriber
@@ -86,7 +86,7 @@ class HttpBuildCacheServiceTest extends Specification {
         def config = new HttpBuildCache()
         config.url = server.uri.resolve("/cache/")
         buildCacheDescriber = new NoopBuildCacheDescriber()
-        cache = new DefaultHttpBuildCacheServiceFactory(new DefaultSslContextFactory(), { it.addHeader("X-Gradle-Version", "3.0")})
+        cache = new DefaultHttpBuildCacheServiceFactory(new DefaultSslContextFactory(), { it.addHeader("X-Gradle-Version", "3.0") })
             .createBuildCacheService(config, buildCacheDescriber)
     }
 

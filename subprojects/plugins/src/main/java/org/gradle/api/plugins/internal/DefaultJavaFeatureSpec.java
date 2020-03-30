@@ -29,17 +29,15 @@ import org.gradle.api.attributes.Usage;
 import org.gradle.api.attributes.java.TargetJvmVersion;
 import org.gradle.api.capabilities.Capability;
 import org.gradle.api.component.AdhocComponentWithVariants;
-import org.gradle.api.component.SoftwareComponent;
 import org.gradle.api.component.SoftwareComponentContainer;
 import org.gradle.api.internal.artifacts.configurations.ConfigurationInternal;
 import org.gradle.api.internal.artifacts.dsl.LazyPublishArtifact;
 import org.gradle.api.internal.attributes.AttributeContainerInternal;
 import org.gradle.api.model.ObjectFactory;
-import org.gradle.api.plugins.AppliedPlugin;
 import org.gradle.api.plugins.BasePlugin;
 import org.gradle.api.plugins.JavaPlugin;
 import org.gradle.api.plugins.JavaPluginConvention;
-import org.gradle.api.plugins.PluginManager;
+import org.gradle.api.plugins.JavaPluginExtension;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.TaskContainer;
 import org.gradle.api.tasks.TaskProvider;
@@ -53,33 +51,40 @@ import static org.gradle.api.attributes.Bundling.BUNDLING_ATTRIBUTE;
 import static org.gradle.api.attributes.Bundling.EXTERNAL;
 import static org.gradle.api.attributes.Category.CATEGORY_ATTRIBUTE;
 import static org.gradle.api.attributes.Category.LIBRARY;
+import static org.gradle.api.attributes.DocsType.JAVADOC;
+import static org.gradle.api.attributes.DocsType.SOURCES;
+import static org.gradle.api.plugins.internal.JvmPluginsHelper.configureDocumentationVariantWithArtifact;
+import static org.gradle.api.plugins.internal.JvmPluginsHelper.configureJavaDocTask;
+import static org.gradle.api.plugins.internal.JvmPluginsHelper.findJavaComponent;
 
 public class DefaultJavaFeatureSpec implements FeatureSpecInternal {
     private final String name;
     private final JavaPluginConvention javaPluginConvention;
+    private final JavaPluginExtension javaPluginExtension;
     private final ConfigurationContainer configurationContainer;
     private final ObjectFactory objectFactory;
-    private final PluginManager pluginManager;
     private final SoftwareComponentContainer components;
     private final TaskContainer tasks;
     private final List<Capability> capabilities = Lists.newArrayListWithExpectedSize(2);
 
     private boolean overrideDefaultCapability = true;
     private SourceSet sourceSet;
+    private boolean withJavadocJar = false;
+    private boolean withSourcesJar = false;
 
     public DefaultJavaFeatureSpec(String name,
                                   Capability defaultCapability,
                                   JavaPluginConvention javaPluginConvention,
+                                  JavaPluginExtension javaPluginExtension,
                                   ConfigurationContainer configurationContainer,
                                   ObjectFactory objectFactory,
-                                  PluginManager pluginManager,
                                   SoftwareComponentContainer components,
                                   TaskContainer tasks) {
         this.name = name;
         this.javaPluginConvention = javaPluginConvention;
+        this.javaPluginExtension = javaPluginExtension;
         this.configurationContainer = configurationContainer;
         this.objectFactory = objectFactory;
-        this.pluginManager = pluginManager;
         this.components = components;
         this.tasks = tasks;
         this.capabilities.add(defaultCapability);
@@ -104,10 +109,22 @@ public class DefaultJavaFeatureSpec implements FeatureSpecInternal {
         setupConfigurations(sourceSet);
     }
 
+    @Override
+    public void withJavadocJar() {
+        withJavadocJar = true;
+    }
+
+    @Override
+    public void withSourcesJar() {
+        withSourcesJar = true;
+    }
+
     private void setupConfigurations(SourceSet sourceSet) {
         if (sourceSet == null) {
             throw new InvalidUserCodeException("You must specify which source set to use for feature '" + name + "'");
         }
+        final AdhocComponentWithVariants component = findJavaComponent(components);
+
         String apiConfigurationName;
         String implConfigurationName;
         String apiElementsConfigurationName;
@@ -143,25 +160,28 @@ public class DefaultJavaFeatureSpec implements FeatureSpecInternal {
         configureCapabilities(runtimeElements);
         attachArtifactToConfiguration(apiElements);
         attachArtifactToConfiguration(runtimeElements);
-
+        configureJavaDocTask(name, sourceSet, tasks, javaPluginExtension);
+        if (withJavadocJar) {
+            configureDocumentationVariantWithArtifact(sourceSet.getJavadocElementsConfigurationName(), name, JAVADOC, capabilities, sourceSet.getJavadocJarTaskName(), tasks.named(sourceSet.getJavadocTaskName()), component, configurationContainer, tasks, objectFactory);
+        }
+        if (withSourcesJar) {
+            configureDocumentationVariantWithArtifact(sourceSet.getSourcesElementsConfigurationName(), name, SOURCES, capabilities, sourceSet.getSourcesJarTaskName(), sourceSet.getAllSource(), component, configurationContainer, tasks, objectFactory);
+        }
         JvmPluginsHelper.configureClassesDirectoryVariant(sourceSet, javaPluginConvention.getProject(), apiElementsConfigurationName, Usage.JAVA_API);
 
         if (mainSourceSet) {
             // since we use the main source set, we need to make sure the compile classpath and runtime classpath are properly configured
             configurationContainer.getByName(JavaPlugin.COMPILE_CLASSPATH_CONFIGURATION_NAME).extendsFrom(impl);
             configurationContainer.getByName(JavaPlugin.RUNTIME_CLASSPATH_CONFIGURATION_NAME).extendsFrom(impl);
-        }
 
-        pluginManager.withPlugin("maven-publish", new Action<AppliedPlugin>() {
-            @Override
-            public void execute(AppliedPlugin plugin) {
-                final AdhocComponentWithVariants component = findComponent();
-                if (component != null) {
-                    component.addVariantsFromConfiguration(apiElements, new JavaConfigurationVariantMapping("compile", true));
-                    component.addVariantsFromConfiguration(runtimeElements, new JavaConfigurationVariantMapping("runtime", true));
-                }
-            }
-        });
+            // and we also want the feature dependencies to be available on the test classpath
+            configurationContainer.getByName(JavaPlugin.TEST_COMPILE_CLASSPATH_CONFIGURATION_NAME).extendsFrom(impl);
+            configurationContainer.getByName(JavaPlugin.TEST_RUNTIME_CLASSPATH_CONFIGURATION_NAME).extendsFrom(impl);
+        }
+        if (component != null) {
+            component.addVariantsFromConfiguration(apiElements, new JavaConfigurationVariantMapping("compile", true));
+            component.addVariantsFromConfiguration(runtimeElements, new JavaConfigurationVariantMapping("runtime", true));
+        }
     }
 
     private void configureTargetPlatform(Configuration configuration) {
@@ -203,14 +223,6 @@ public class DefaultJavaFeatureSpec implements FeatureSpecInternal {
         configuration.getArtifacts().add(new LazyPublishArtifact(jar));
     }
 
-    private AdhocComponentWithVariants findComponent() {
-        SoftwareComponent component = components.findByName("java");
-        if (component instanceof AdhocComponentWithVariants) {
-            return (AdhocComponentWithVariants) component;
-        }
-        return null;
-    }
-
     private void configureCapabilities(Configuration apiElements) {
         for (Capability capability : capabilities) {
             apiElements.getOutgoing().capability(capability);
@@ -243,8 +255,7 @@ public class DefaultJavaFeatureSpec implements FeatureSpecInternal {
     }
 
     private boolean isMainSourceSet(SourceSet sourceSet) {
-        SourceSet mainSourceSet = javaPluginConvention.getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME);
-        return mainSourceSet.equals(sourceSet);
+        return sourceSet.getName().equals(SourceSet.MAIN_SOURCE_SET_NAME);
     }
 
 }

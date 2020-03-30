@@ -18,10 +18,12 @@ package org.gradle.jvm.test
 
 import groovy.transform.NotYetImplemented
 import org.gradle.integtests.fixtures.DefaultTestExecutionResult
+import org.gradle.integtests.fixtures.UnsupportedWithInstantExecution
 import org.hamcrest.CoreMatchers
 import spock.lang.Ignore
 import spock.lang.Unroll
 
+@UnsupportedWithInstantExecution(because = "software model")
 class JUnitStandaloneTestExecutionIntegrationTest extends AbstractJUnitTestExecutionIntegrationSpec {
 
     def "creates a JUnit test suite binary"() {
@@ -418,6 +420,7 @@ class JUnitStandaloneTestExecutionIntegrationTest extends AbstractJUnitTestExecu
         executedAndNotSkipped ':compileMyTestBinaryMyTestJava', ':processMyTestBinaryMyTestResources', ':myTestBinaryTest'
 
         when:
+        expectDeprecationWarnings()
         succeeds ':checkTaskType'
 
         then:

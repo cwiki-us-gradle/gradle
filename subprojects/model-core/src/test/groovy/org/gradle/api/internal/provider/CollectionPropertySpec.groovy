@@ -19,6 +19,8 @@ package org.gradle.api.internal.provider
 import com.google.common.collect.ImmutableCollection
 import org.gradle.api.Transformer
 import org.gradle.api.provider.Provider
+import org.gradle.internal.Describables
+import org.gradle.util.TextUtil
 import spock.lang.Unroll
 
 abstract class CollectionPropertySpec<C extends Collection<String>> extends PropertySpec<C> {
@@ -35,13 +37,6 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
     }
 
     @Override
-    AbstractCollectionProperty<String, C> providerWithValue(C value) {
-        def p = property()
-        p.set(value)
-        return p
-    }
-
-    @Override
     C someValue() {
         return toMutable(["s1", "s2"])
     }
@@ -51,14 +46,26 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
         return toMutable(["s1"])
     }
 
-    abstract AbstractCollectionProperty<String, C> property()
+    @Override
+    C someOtherValue2() {
+        return toMutable(["s2"])
+    }
 
     @Override
-    abstract Class<C> type()
+    C someOtherValue3() {
+        return toMutable(["s3"])
+    }
+
+    abstract AbstractCollectionProperty<String, C> property()
 
     @Override
     protected void setToNull(Object property) {
         property.set((Iterable) null)
+    }
+
+    @Override
+    protected void nullConvention(Object property) {
+        property.convention((Iterable) null)
     }
 
     def property = property()
@@ -87,6 +94,7 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
     }
 
     def "can change value to empty collection"() {
+        property.set(["abc"])
         property.empty()
 
         expect:
@@ -144,7 +152,7 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
     def "can set untyped from provider"() {
         def provider = Stub(ProviderInternal)
         provider.type >> null
-        provider.get() >>> [["1"], ["2"]]
+        provider.calculateValue() >>> [["1"], ["2"]].collect { ValueSupplier.Value.of(it) }
 
         expect:
         property.setFromAnyValue(provider)
@@ -174,7 +182,7 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
     def "queries underlying provider for every call to get()"() {
         def provider = Stub(ProviderInternal)
         provider.type >> List
-        provider.get() >>> [["123"], ["abc"]]
+        provider.calculateValue() >>> [["123"], ["abc"]].collect { ValueSupplier.Value.of(it) }
         provider.present >> true
 
         expect:
@@ -279,7 +287,7 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
     def "queries values of provider on every call to get()"() {
         def provider = Stub(ProviderInternal)
         _ * provider.present >> true
-        _ * provider.get() >>> [["abc"], ["def"]]
+        _ * provider.calculateValue() >>> [["abc"], ["def"]].collect { ValueSupplier.Value.of(it) }
 
         expect:
         property.addAll(provider)
@@ -352,18 +360,18 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
         property.get()
 
         then:
-        1 * valueProvider.get() >> ["1"]
-        1 * addProvider.get() >> "2"
-        1 * addAllProvider.get() >> ["3"]
+        1 * valueProvider.calculateValue() >> ValueSupplier.Value.of(["1"])
+        1 * addProvider.calculateValue() >> ValueSupplier.Value.of("2")
+        1 * addAllProvider.calculateValue() >> ValueSupplier.Value.of(["3"])
         0 * _
 
         when:
         property.getOrNull()
 
         then:
-        1 * valueProvider.getOrNull() >> ["1"]
-        1 * addProvider.getOrNull() >> "2"
-        1 * addAllProvider.getOrNull() >> ["3"]
+        1 * valueProvider.calculateValue() >> ValueSupplier.Value.of(["1"])
+        1 * addProvider.calculateValue() >> ValueSupplier.Value.of("2")
+        1 * addAllProvider.calculateValue() >> ValueSupplier.Value.of(["3"])
         0 * _
     }
 
@@ -404,8 +412,8 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
         property.get()
 
         then:
-        def e = thrown(IllegalStateException)
-        e.message == Providers.NULL_VALUE
+        def e = thrown(MissingValueException)
+        e.message == "Cannot query the value of ${displayName} because it has no value available."
     }
 
     def "property has no value when set to provider with no value and other values appended"() {
@@ -428,7 +436,7 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
 
         then:
         def e = thrown(IllegalStateException)
-        e.message == Providers.NULL_VALUE
+        e.message == "Cannot query the value of ${displayName} because it has no value available."
     }
 
     def "property has no value when adding an element provider with no value"() {
@@ -447,7 +455,22 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
 
         then:
         def e = thrown(IllegalStateException)
-        e.message == Providers.NULL_VALUE
+        e.message == "Cannot query the value of ${displayName} because it has no value available."
+    }
+
+    def "reports the source of element provider when value is missing and source is known"() {
+        given:
+        def elementProvider = supplierWithNoValue(Describables.of("<source>"))
+        property.set(toMutable(["123"]))
+        property.add(elementProvider)
+
+        when:
+        property.get()
+
+        then:
+        def e = thrown(IllegalStateException)
+        e.message == TextUtil.toPlatformLineSeparators("""Cannot query the value of ${displayName} because it has no value available.
+The value of this property is derived from: <source>""")
     }
 
     def "property has no value when adding an collection provider with no value"() {
@@ -466,7 +489,22 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
 
         then:
         def e = thrown(IllegalStateException)
-        e.message == Providers.NULL_VALUE
+        e.message == "Cannot query the value of ${displayName} because it has no value available."
+    }
+
+    def "reports the source of collection provider when value is missing and source is known"() {
+        given:
+        def elementsProvider = supplierWithNoValue(Describables.of("<source>"))
+        property.set(toMutable(["123"]))
+        property.addAll(elementsProvider)
+
+        when:
+        property.get()
+
+        then:
+        def e = thrown(IllegalStateException)
+        e.message == TextUtil.toPlatformLineSeparators("""Cannot query the value of ${displayName} because it has no value available.
+The value of this property is derived from: <source>""")
     }
 
     def "can set to null value to discard value"() {
@@ -589,18 +627,19 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
         e.message == 'The value for this property is final and cannot be changed any further.'
     }
 
-    def "ignores set to empty list after value finalized leniently"() {
+    def "cannot set to empty list after value finalized implicitly"() {
         given:
         def property = property()
         property.set(someValue())
         property.implicitFinalizeValue()
-        property.get()
 
         when:
         property.empty()
 
+
         then:
-        property.get() == toImmutable(someValue())
+        def e = thrown(IllegalStateException)
+        e.message == 'The value for this property cannot be changed any further.'
     }
 
     def "cannot set to empty list after changes disallowed"() {
@@ -638,19 +677,25 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
         e2.message == 'The value for this property is final and cannot be changed any further.'
     }
 
-    def "ignores add element after value finalized leniently"() {
+    def "cannot add element after value finalized implicitly"() {
         given:
         def property = property()
         property.set(someValue())
         property.implicitFinalizeValue()
-        property.get()
 
         when:
         property.add("123")
+
+        then:
+        def e = thrown(IllegalStateException)
+        e.message == 'The value for this property cannot be changed any further.'
+
+        when:
         property.add(Stub(PropertyInternal))
 
         then:
-        property.get() == toImmutable(someValue())
+        def e2 = thrown(IllegalStateException)
+        e2.message == 'The value for this property cannot be changed any further.'
     }
 
     def "cannot add element after changes disallowed"() {
@@ -702,20 +747,32 @@ abstract class CollectionPropertySpec<C extends Collection<String>> extends Prop
         e3.message == 'The value for this property is final and cannot be changed any further.'
     }
 
-    def "ignores add elements after value finalized leniently"() {
+    def "cannot add elements after value finalized implicitly"() {
         given:
         def property = property()
         property.set(someValue())
         property.implicitFinalizeValue()
-        property.get()
 
         when:
         property.addAll("123", "456")
+
+        then:
+        def e = thrown(IllegalStateException)
+        e.message == 'The value for this property cannot be changed any further.'
+
+        when:
         property.addAll(["123", "456"])
+
+        then:
+        def e2 = thrown(IllegalStateException)
+        e2.message == 'The value for this property cannot be changed any further.'
+
+        when:
         property.addAll(Stub(ProviderInternal))
 
         then:
-        property.get() == toImmutable(someValue())
+        def e3 = thrown(IllegalStateException)
+        e3.message == 'The value for this property cannot be changed any further.'
     }
 
     def "cannot add elements after changes disallowed"() {

@@ -18,7 +18,6 @@ package org.gradle.integtests.resolve.attributes
 
 import org.gradle.integtests.fixtures.GradleMetadataResolveRunner
 import org.gradle.integtests.fixtures.RequiredFeature
-import org.gradle.integtests.fixtures.RequiredFeatures
 import org.gradle.integtests.resolve.AbstractModuleDependencyResolveTest
 import spock.lang.Issue
 import spock.lang.Unroll
@@ -106,9 +105,8 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
         outputDoesNotContain("Cannot set attributes for constraint \"org:test:1.0\": it was probably created by a plugin using internal APIs")
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     @Unroll("Selects variant #expectedVariant using custom attribute value #attributeValue")
     def "attribute value is used during selection"() {
         given:
@@ -153,13 +151,11 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
 
         where:
         attributeValue | expectedVariant | expectedAttributes
-        'c1'           | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', custom: 'c1']
-        'c2'           | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', custom: 'c2']
+        'c1'           | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: 'c1']
+        'c2'           | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: 'c2']
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     def "Fails resolution because dependency attributes and constraint attributes conflict"() {
         given:
         repository {
@@ -202,9 +198,7 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
         failure.assertHasCause("""Inconsistency between attributes of a constraint and a dependency, on attribute 'custom' : dependency requires 'c1' while constraint required 'c2'""")
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     @Unroll("Selects variant #expectedVariant using typed attribute value #attributeValue")
     @Issue("gradle/gradle#5232")
     def "can declare typed attributes without failing serialization"() {
@@ -222,10 +216,10 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
 
         buildFile << """
             interface Lifecycle extends Named {}
-            
+
             def LIFECYCLE_ATTRIBUTE = Attribute.of('lifecycle', Lifecycle)
             dependencies.attributesSchema.attribute(LIFECYCLE_ATTRIBUTE)
-            
+
             dependencies {
                 conf('org:test:1.0') {
                     attributes {
@@ -258,13 +252,11 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
 
         where:
         attributeValue | expectedVariant | expectedAttributes
-        'c1'           | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', lifecycle: 'c1']
-        'c2'           | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', lifecycle: 'c2']
+        'c1'           | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', lifecycle: 'c1']
+        'c2'           | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', lifecycle: 'c2']
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     @Issue("gradle/gradle#5232")
     def "Serializes and reads back failed resolution when failure comes from an unmatched typed attribute"() {
         given:
@@ -276,10 +268,10 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
 
         buildFile << """
             interface Lifecycle extends Named {}
-            
+
             def LIFECYCLE_ATTRIBUTE = Attribute.of('lifecycle', Lifecycle)
             dependencies.attributesSchema.attribute(LIFECYCLE_ATTRIBUTE)
-            
+
             dependencies {
                 conf('org:test:[1.0,)') {
                     attributes {
@@ -287,7 +279,7 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
                     }
                 }
             }
-            
+
             configurations.conf.incoming.afterResolve {
                 // afterResolve will trigger the problem when reading
                 it.resolutionResult.allComponents {
@@ -314,9 +306,7 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
         outputContains("Success for project :")
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     def "Merges consumer configuration attributes with dependency attributes"() {
         given:
         repository {
@@ -355,15 +345,13 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
             root(":", ":test:") {
                 module('org:test:1.0') {
                     configuration = 'api'
-                    variant('api', ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', custom: 'c1'])
+                    variant('api', ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: 'c1'])
                 }
             }
         }
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     def "Fails resolution because consumer configuration attributes and dependency attributes conflict"() {
         given:
         repository {
@@ -404,20 +392,20 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
           - Required org.gradle.usage 'java-runtime' and found incompatible value 'java-api'.
       - Other attributes:
           - Required custom 'c1' and found compatible value 'c1'.
+          - Found org.gradle.category 'library' but wasn't required.
           - Found org.gradle.libraryelements 'jar' but wasn't required.
           - Found org.gradle.status '${defaultStatus()}' but wasn't required.
   - Variant 'runtime' capability org:test:1.0:
       - Incompatible attribute:
           - Required custom 'c1' and found incompatible value 'c2'.
       - Other attributes:
+          - Found org.gradle.category 'library' but wasn't required.
           - Found org.gradle.libraryelements 'jar' but wasn't required.
           - Found org.gradle.status '${defaultStatus()}' but wasn't required.
           - Required org.gradle.usage 'java-runtime' and found compatible value 'java-runtime'.""")
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     @Unroll("Selects variant #expectedVariant using custom attribute value #dependencyValue overriding configuration attribute #configurationValue")
     def "dependency attribute value overrides configuration attribute"() {
         given:
@@ -464,13 +452,11 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
 
         where:
         configurationValue | dependencyValue | expectedVariant | expectedAttributes
-        'c2'               | 'c1'            | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', custom: 'c1']
-        'c1'               | 'c2'            | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', custom: 'c2']
+        'c2'               | 'c1'            | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: 'c1']
+        'c1'               | 'c2'            | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: 'c2']
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     @Unroll("Selects variant #expectedVariant using custom attribute value #dependencyValue overriding configuration attribute #configurationValue using dependency constraint")
     def "dependency attribute value overrides configuration attribute using dependency constraint"() {
         given:
@@ -524,13 +510,11 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
 
         where:
         configurationValue | dependencyValue | expectedVariant | expectedAttributes
-        'c2'               | 'c1'            | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', custom: 'c1']
-        'c1'               | 'c2'            | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', custom: 'c2']
+        'c2'               | 'c1'            | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: 'c1']
+        'c1'               | 'c2'            | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: 'c2']
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     def "Fails resolution because consumer configuration attributes and constraint attributes conflict"() {
         given:
         repository {
@@ -574,20 +558,20 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
           - Required org.gradle.usage 'java-runtime' and found incompatible value 'java-api'.
       - Other attributes:
           - Required custom 'c1' and found compatible value 'c1'.
+          - Found org.gradle.category 'library' but wasn't required.
           - Found org.gradle.libraryelements 'jar' but wasn't required.
           - Found org.gradle.status '${defaultStatus()}' but wasn't required.
   - Variant 'runtime' capability org:test:1.0:
       - Incompatible attribute:
           - Required custom 'c1' and found incompatible value 'c2'.
       - Other attributes:
+          - Found org.gradle.category 'library' but wasn't required.
           - Found org.gradle.libraryelements 'jar' but wasn't required.
           - Found org.gradle.status '${defaultStatus()}' but wasn't required.
           - Required org.gradle.usage 'java-runtime' and found compatible value 'java-runtime'.""")
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     @Unroll("Selects variant #expectedVariant using dependency attribute value #attributeValue set in a metadata rule")
     def "attribute value set by metadata rule is used during selection"() {
         given:
@@ -712,14 +696,12 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
 
         where:
         attributeValue | expectedVariant | expectedAttributes
-        'c1'           | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', custom: 'c1']
-        'c2'           | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', custom: 'c2']
+        'c1'           | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: 'c1']
+        'c2'           | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: 'c2']
     }
 
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     @Unroll("Selects variant #expectedVariant using transitive dependency attribute value #attributeValue set in a metadata rule")
     def "attribute value set by metadata rule on transitive dependency is used during selection"() {
         given:
@@ -862,13 +844,11 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
 
         where:
         attributeValue | expectedVariant | expectedAttributes
-        'c1'           | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', custom: 'c1']
-        'c2'           | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', custom: 'c2']
+        'c1'           | 'api'           | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: 'c1']
+        'c2'           | 'runtime'       | ['org.gradle.status': defaultStatus(), 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: 'c2']
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     @Unroll("Selects direct=#expectedDirectVariant, transitive=[#expectedTransitiveVariantA, #expectedTransitiveVariantB], leaf=#expectedLeafVariant making sure dependency attribute value doesn't leak to transitives")
     def "Attribute value on dependency only affects selection of this dependency (using component metadata rules)"() {
         given:
@@ -924,11 +904,11 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
                     withModule('org:directA', ModifyDependencyRule) {
                         params(CUSTOM_ATTRIBUTE)
                         params('$transitiveAttributeValueA')
-                    } 
+                    }
                     withModule('org:directB', ModifyDependencyRule) {
                         params(CUSTOM_ATTRIBUTE)
                         params('$transitiveAttributeValueB')
-                    }                    
+                    }
                 }
                 conf('org:directA:1.0')
                 conf('org:directB:1.0')
@@ -952,25 +932,25 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
             root(":", ":test:") {
                 module('org:directA:1.0') {
                     configuration = expectedDirectVariant
-                    variant(expectedDirectVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedDirectVariant}", 'org.gradle.libraryelements': 'jar', custom: configurationAttributeValue])
+                    variant(expectedDirectVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedDirectVariant}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: configurationAttributeValue])
                     module('org:transitiveA:1.0') {
                         configuration = expectedTransitiveVariantA
-                        variant(expectedTransitiveVariantA, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedTransitiveVariantA}", 'org.gradle.libraryelements': 'jar', custom: transitiveAttributeValueA])
+                        variant(expectedTransitiveVariantA, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedTransitiveVariantA}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: transitiveAttributeValueA])
                         module('org:leafA:1.0') {
                             configuration = expectedLeafVariant
-                            variant(expectedLeafVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedLeafVariant}", 'org.gradle.libraryelements': 'jar', custom: configurationAttributeValue])
+                            variant(expectedLeafVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedLeafVariant}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: configurationAttributeValue])
                         }
                     }
                 }
                 module('org:directB:1.0') {
                     configuration = expectedDirectVariant
-                    variant(expectedDirectVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedDirectVariant}", 'org.gradle.libraryelements': 'jar', custom: configurationAttributeValue])
+                    variant(expectedDirectVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedDirectVariant}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: configurationAttributeValue])
                     module('org:transitiveB:1.0') {
                         configuration = expectedTransitiveVariantB
-                        variant(expectedTransitiveVariantB, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedTransitiveVariantB}", 'org.gradle.libraryelements': 'jar', custom: transitiveAttributeValueB])
+                        variant(expectedTransitiveVariantB, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedTransitiveVariantB}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: transitiveAttributeValueB])
                         module('org:leafB:1.0') {
                             configuration = expectedLeafVariant
-                            variant(expectedLeafVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedLeafVariant}", 'org.gradle.libraryelements': 'jar', custom: configurationAttributeValue])
+                            variant(expectedLeafVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedLeafVariant}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: configurationAttributeValue])
                         }
                     }
                 }
@@ -990,9 +970,7 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
         'c2'                        | 'c1'                      | 'c2'                      | 'runtime'             | 'api'                      | 'runtime'                  | 'runtime'
     }
 
-    @RequiredFeatures(
-            @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
-    )
+    @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
     @Unroll("Selects direct=#expectedDirectVariant, transitive=[#expectedTransitiveVariantA, #expectedTransitiveVariantB], leaf=#expectedLeafVariant making sure dependency attribute value doesn't leak to transitives (using published metadata)")
     def "Attribute value on dependency only affects selection of this dependency (using published metadata)"() {
         given:
@@ -1026,7 +1004,7 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
         buildFile << """
             configurations.conf.attributes.attribute(CUSTOM_ATTRIBUTE, '$configurationAttributeValue')
 
-            dependencies {                
+            dependencies {
                 conf('org:directA:1.0')
                 conf('org:directB:1.0')
             }
@@ -1049,25 +1027,25 @@ class DependenciesAttributesIntegrationTest extends AbstractModuleDependencyReso
             root(":", ":test:") {
                 module('org:directA:1.0') {
                     configuration = expectedDirectVariant
-                    variant(expectedDirectVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedDirectVariant}", 'org.gradle.libraryelements': 'jar', custom: configurationAttributeValue])
+                    variant(expectedDirectVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedDirectVariant}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: configurationAttributeValue])
                     module('org:transitiveA:1.0') {
                         configuration = expectedTransitiveVariantA
-                        variant(expectedTransitiveVariantA, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedTransitiveVariantA}", 'org.gradle.libraryelements': 'jar', custom: transitiveAttributeValueA])
+                        variant(expectedTransitiveVariantA, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedTransitiveVariantA}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: transitiveAttributeValueA])
                         module('org:leafA:1.0') {
                             configuration = expectedLeafVariant
-                            variant(expectedLeafVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedLeafVariant}", 'org.gradle.libraryelements': 'jar', custom: configurationAttributeValue])
+                            variant(expectedLeafVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedLeafVariant}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: configurationAttributeValue])
                         }
                     }
                 }
                 module('org:directB:1.0') {
                     configuration = expectedDirectVariant
-                    variant(expectedDirectVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedDirectVariant}", 'org.gradle.libraryelements': 'jar', custom: configurationAttributeValue])
+                    variant(expectedDirectVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedDirectVariant}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: configurationAttributeValue])
                     module('org:transitiveB:1.0') {
                         configuration = expectedTransitiveVariantB
-                        variant(expectedTransitiveVariantB, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedTransitiveVariantB}", 'org.gradle.libraryelements': 'jar', custom: transitiveAttributeValueB])
+                        variant(expectedTransitiveVariantB, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedTransitiveVariantB}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: transitiveAttributeValueB])
                         module('org:leafB:1.0') {
                             configuration = expectedLeafVariant
-                            variant(expectedLeafVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedLeafVariant}", 'org.gradle.libraryelements': 'jar', custom: configurationAttributeValue])
+                            variant(expectedLeafVariant, ['org.gradle.status': DependenciesAttributesIntegrationTest.defaultStatus(), 'org.gradle.usage': "java-${expectedLeafVariant}", 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library', custom: configurationAttributeValue])
                         }
                     }
                 }

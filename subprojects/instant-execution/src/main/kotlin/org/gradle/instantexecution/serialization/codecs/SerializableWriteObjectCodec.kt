@@ -16,16 +16,21 @@
 
 package org.gradle.instantexecution.serialization.codecs
 
-import org.gradle.instantexecution.runToCompletion
-
+import org.gradle.instantexecution.coroutines.runToCompletion
 import org.gradle.instantexecution.serialization.EncodingProvider
 import org.gradle.instantexecution.serialization.ReadContext
 import org.gradle.instantexecution.serialization.WriteContext
 import org.gradle.instantexecution.serialization.beans.BeanStateReader
 import org.gradle.instantexecution.serialization.decodePreservingIdentity
 import org.gradle.instantexecution.serialization.encodePreservingIdentityOf
+import org.gradle.instantexecution.serialization.readDouble
+import org.gradle.instantexecution.serialization.readFloat
+import org.gradle.instantexecution.serialization.readShort
 import org.gradle.instantexecution.serialization.withBeanTrace
 import org.gradle.instantexecution.serialization.withImmediateMode
+import org.gradle.instantexecution.serialization.writeDouble
+import org.gradle.instantexecution.serialization.writeFloat
+import org.gradle.instantexecution.serialization.writeShort
 
 import java.io.InputStream
 import java.io.ObjectInputStream
@@ -52,15 +57,17 @@ class SerializableWriteObjectCodec : EncodingProducer, Decoding {
                 val beanType = readClass()
                 withBeanTrace(beanType) {
                     val beanStateReader = beanStateReaderFor(beanType)
-                    beanStateReader.run { newBeanWithId(id) }.also { bean ->
-                        readObjectMethodOf(beanType).invoke(
+                    beanStateReader.run { newBeanWithId(false, id) }.also { bean ->
+                        val objectInputStream = ObjectInputStreamAdapter(
                             bean,
-                            ObjectInputStreamAdapter(
-                                bean,
-                                beanStateReader,
-                                this@decode
-                            )
+                            beanStateReader,
+                            this@decode
                         )
+                        val readObject = readObjectMethodOf(beanType)
+                        when {
+                            readObject != null -> readObject.invoke(bean, objectInputStream)
+                            else -> objectInputStream.defaultReadObject()
+                        }
                     }
                 }
             }
@@ -94,7 +101,7 @@ class SerializableWriteObjectCodec : EncodingProducer, Decoding {
         }
 
     private
-    fun readObjectMethodOf(type: Class<*>) = readObjectCache.forClass(type)!!
+    fun readObjectMethodOf(type: Class<*>) = readObjectCache.forClass(type)
 
     // TODO:instant-execution readObjectNoData
     private
@@ -175,8 +182,20 @@ class RecordingObjectOutputStream(
         writeBoolean(`val`)
     }
 
+    override fun writeShort(`val`: Int) = record {
+        this.writeShort(`val`.toShort())
+    }
+
     override fun writeLong(`val`: Long) = record {
         writeLong(`val`)
+    }
+
+    override fun writeFloat(`val`: Float) = record {
+        this.writeFloat(`val`)
+    }
+
+    override fun writeDouble(`val`: Double) = record {
+        this.writeDouble(`val`)
     }
 
     override fun useProtocolVersion(version: Int) = Unit
@@ -195,13 +214,7 @@ class RecordingObjectOutputStream(
 
     override fun writeUnshared(obj: Any?) = TODO("writeUnshared")
 
-    override fun writeShort(`val`: Int) = TODO("writeShort")
-
     override fun writeBytes(str: String) = TODO("writeBytes")
-
-    override fun writeDouble(`val`: Double) = TODO("writeDouble")
-
-    override fun writeFloat(`val`: Float) = TODO("writeFloat")
 }
 
 
@@ -243,11 +256,18 @@ class ObjectInputStreamAdapter(
 
     override fun readChar(): Char = readContext.readInt().toChar()
 
+    override fun readShort(): Short = readContext.readShort()
+
     override fun readLong(): Long = readContext.readLong()
+
+    override fun readFloat(): Float = readContext.readFloat()
+
+    override fun readDouble(): Double = readContext.readDouble()
 
     override fun readBoolean(): Boolean = readContext.readBoolean()
 
-    override fun readNBytes(len: Int): ByteArray = inputStream.readNBytes(len)
+    // TODO:instant-execution override Java 11 API for compatibility with Java 11
+    // override fun readNBytes(len: Int): ByteArray = inputStream.readNBytes(len)
 
     override fun readNBytes(b: ByteArray, off: Int, len: Int): Int = inputStream.readNBytes(b, off, len)
 
@@ -271,17 +291,11 @@ class ObjectInputStreamAdapter(
 
     override fun readFully(buf: ByteArray, off: Int, len: Int) = TODO("readFully")
 
-    override fun readDouble(): Double = TODO("readDouble")
-
     override fun readUnshared(): Any = TODO("readUnshared")
-
-    override fun readShort(): Short = TODO("readShort")
 
     override fun readUnsignedShort(): Int = TODO("readUnsignedShort")
 
     override fun readUnsignedByte(): Int = TODO("readUnsignedByte")
-
-    override fun readFloat(): Float = TODO("readFloat")
 
     override fun readFields(): GetField = TODO("readFields")
 

@@ -70,6 +70,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class DefaultServiceRegistry implements ServiceRegistry, Closeable, ContainsServices {
     private enum State {INIT, STARTED, CLOSED}
+
     private final static ServiceRegistry[] NO_PARENTS = new ServiceRegistry[0];
     private final static Service[] NO_DEPENDENTS = new Service[0];
     private final static Object[] NO_PARAMS = new Object[0];
@@ -208,7 +209,7 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
 
     private void assertMutable() {
         if (state.get() != State.INIT) {
-            throw new IllegalStateException("Cannot add provide to service registry " + this + " as it is no longer mutable");
+            throw new IllegalStateException("Cannot add services to service registry " + this + " as it is no longer mutable");
         }
     }
 
@@ -711,6 +712,8 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
 
         protected abstract Member getFactory();
 
+        protected abstract String getFactoryDisplayName();
+
         @Override
         protected void bind() {
             Type[] parameterTypes = getParameterTypes();
@@ -725,11 +728,11 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
                     // A decorating factory
                     Service paramProvider = find(paramType, owner.parentServices);
                     if (paramProvider == null) {
-                        throw new ServiceCreationException(String.format("Cannot create service of type %s using %s.%s() as required service of type %s is not available in parent registries.",
+                        throw new ServiceCreationException(String.format("Cannot create service of type %s using %s as required service of type %s for parameter #%s is not available in parent registries.",
                             format(serviceType),
-                            getFactory().getDeclaringClass().getSimpleName(),
-                            getFactory().getName(),
-                            format(paramType)));
+                            getFactoryDisplayName(),
+                            format(paramType),
+                            i + 1));
                     }
                     paramServices[i] = paramProvider;
                     decorates = paramProvider;
@@ -738,19 +741,18 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
                     try {
                         paramProvider = find(paramType, owner.allServices);
                     } catch (ServiceLookupException e) {
-                        throw new ServiceCreationException(String.format("Cannot create service of type %s using %s.%s() as there is a problem with parameter #%s of type %s.",
+                        throw new ServiceCreationException(String.format("Cannot create service of type %s using %s as there is a problem with parameter #%s of type %s.",
                             format(serviceType),
-                            getFactory().getDeclaringClass().getSimpleName(),
-                            getFactory().getName(),
+                            getFactoryDisplayName(),
                             i + 1,
                             format(paramType)), e);
                     }
                     if (paramProvider == null) {
-                        throw new ServiceCreationException(String.format("Cannot create service of type %s using %s.%s() as required service of type %s is not available.",
+                        throw new ServiceCreationException(String.format("Cannot create service of type %s using %s as required service of type %s for parameter #%s is not available.",
                             format(serviceType),
-                            getFactory().getDeclaringClass().getSimpleName(),
-                            getFactory().getName(),
-                            format(paramType)));
+                            getFactoryDisplayName(),
+                            format(paramType),
+                            i + 1));
 
                     }
                     paramServices[i] = paramProvider;
@@ -801,7 +803,7 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
         protected abstract Object invokeMethod(Object[] params);
     }
 
-    private class FactoryMethodService extends FactoryService {
+    private static class FactoryMethodService extends FactoryService {
         private final ServiceMethod method;
         private Object target;
 
@@ -824,6 +826,11 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
         @Override
         protected Member getFactory() {
             return method.getMethod();
+        }
+
+        @Override
+        protected String getFactoryDisplayName() {
+            return String.format("method %s.%s()", format(getFactory().getDeclaringClass()), getFactory().getName());
         }
 
         @Override
@@ -875,6 +882,9 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
 
         private ConstructorService(DefaultServiceRegistry owner, Class<?> serviceType) {
             super(owner, serviceType);
+            if (serviceType.isInterface()) {
+                throw new ServiceValidationException("Cannot register an interface for construction.");
+            }
             Constructor<?>[] constructors = serviceType.getDeclaredConstructors();
             Constructor<?> match = null;
             for (Constructor<?> constructor : constructors) {
@@ -900,6 +910,11 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
         @Override
         protected Member getFactory() {
             return constructor;
+        }
+
+        @Override
+        protected String getFactoryDisplayName() {
+            return String.format("%s constructor", format(getFactory().getDeclaringClass()));
         }
 
         @Override
@@ -1156,7 +1171,12 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
     private static String format(Type type) {
         if (type instanceof Class) {
             Class<?> aClass = (Class) type;
-            return aClass.getSimpleName();
+            Class<?> enclosingClass = aClass.getEnclosingClass();
+            if (enclosingClass != null) {
+                return format(enclosingClass) + "$" + aClass.getSimpleName();
+            } else {
+                return aClass.getSimpleName();
+            }
         } else if (type instanceof ParameterizedType) {
             ParameterizedType parameterizedType = (ParameterizedType) type;
             StringBuilder builder = new StringBuilder();

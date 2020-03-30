@@ -1,14 +1,16 @@
 package projects
 
+import Gradle_Check.model.GradleBuildBucketProvider
 import configurations.StagePasses
-import jetbrains.buildServer.configs.kotlin.v2018_2.AbsoluteId
-import jetbrains.buildServer.configs.kotlin.v2018_2.Project
-import jetbrains.buildServer.configs.kotlin.v2018_2.projectFeatures.VersionedSettings
-import jetbrains.buildServer.configs.kotlin.v2018_2.projectFeatures.versionedSettings
+import jetbrains.buildServer.configs.kotlin.v2019_2.AbsoluteId
+import jetbrains.buildServer.configs.kotlin.v2019_2.ParameterDisplay
+import jetbrains.buildServer.configs.kotlin.v2019_2.Project
+import jetbrains.buildServer.configs.kotlin.v2019_2.projectFeatures.VersionedSettings
+import jetbrains.buildServer.configs.kotlin.v2019_2.projectFeatures.versionedSettings
 import model.CIBuildModel
 import model.Stage
 
-class RootProject(model: CIBuildModel) : Project({
+class RootProject(model: CIBuildModel, gradleBuildBucketProvider: GradleBuildBucketProvider) : Project({
     uuid = model.projectPrefix.removeSuffix("_")
     id = AbsoluteId(uuid)
     parentId = AbsoluteId("Gradle")
@@ -26,14 +28,16 @@ class RootProject(model: CIBuildModel) : Project({
         }
     }
 
+    params {
+        password("teamcity.user.bot-gradle.token", "credentialsJSON:6b612db7-378d-4c16-adeb-f74543ff29ae", display = ParameterDisplay.HIDDEN)
+    }
+
     var prevStage: Stage? = null
-    var deferredAlreadyDeclared = false
-    FunctionalTestProject.missingTestCoverage.clear()
     model.stages.forEach { stage ->
-        val containsDeferredTests = !stage.omitsSlowProjects && !deferredAlreadyDeclared
-        deferredAlreadyDeclared = deferredAlreadyDeclared || containsDeferredTests
-        buildType(StagePasses(model, stage, prevStage, containsDeferredTests))
-        subProject(StageProject(model, stage, containsDeferredTests, uuid))
+        val stageProject = StageProject(model, gradleBuildBucketProvider, stage, uuid)
+        val stagePasses = StagePasses(model, stage, prevStage, stageProject)
+        buildType(stagePasses)
+        subProject(stageProject)
         prevStage = stage
     }
 

@@ -16,7 +16,8 @@
 
 package org.gradle.tooling.internal.provider;
 
-import org.gradle.api.execution.internal.TaskInputsListener;
+import org.gradle.api.execution.internal.TaskInputsListeners;
+import org.gradle.internal.build.event.BuildEventListenerFactory;
 import org.gradle.internal.classpath.CachedClasspathTransformer;
 import org.gradle.internal.concurrent.ExecutorFactory;
 import org.gradle.internal.concurrent.ParallelismConfigurationManager;
@@ -62,10 +63,10 @@ public class LauncherServices extends AbstractPluginServiceRegistry {
 
     static class ToolingGlobalScopeServices {
         BuildExecuter createBuildExecuter(List<BuildActionRunner> buildActionRunners,
-                                          List<SubscribableBuildActionRunnerRegistration> registrations,
+                                          List<BuildEventListenerFactory> registrations,
                                           ListenerManager listenerManager,
                                           BuildOperationListenerManager buildOperationListenerManager,
-                                          TaskInputsListener inputsListener,
+                                          TaskInputsListeners inputsListeners,
                                           StyledTextOutputFactory styledTextOutputFactory,
                                           ExecutorFactory executorFactory,
                                           LoggingManagerInternal loggingManager,
@@ -89,13 +90,13 @@ public class LauncherServices extends AbstractPluginServiceRegistry {
                                                                 new BuildOutcomeReportingBuildActionRunner(
                                                                     new ChainingBuildActionRunner(buildActionRunners),
                                                                     styledTextOutputFactory)))))),
-                                        fileSystemChangeWaiterFactory,
-                                        inputsListener,
-                                        styledTextOutputFactory,
-                                        executorFactory),
-                                            listenerManager,
-                                            buildOperationListenerManager,
-                                            registrations),
+                                            fileSystemChangeWaiterFactory,
+                                            inputsListeners,
+                                            styledTextOutputFactory,
+                                            executorFactory),
+                                        listenerManager,
+                                        buildOperationListenerManager,
+                                        registrations),
                                     userHomeServiceRegistry)),
                             parallelismConfigurationManager)),
                     styledTextOutputFactory,

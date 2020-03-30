@@ -34,7 +34,7 @@ fun Project.configureCheckstyle(codeQualityConfigDir: File) {
 
     val checkStyleConfigDir = codeQualityConfigDir.resolve("checkstyle")
     configure<CheckstyleExtension> {
-        configDir = checkStyleConfigDir
+        configDirectory.set(checkStyleConfigDir)
         toolVersion = "8.12"
 
         plugins.withType<GroovyBasePlugin> {
@@ -62,7 +62,7 @@ fun Project.configureCodenarc(codeQualityConfigDir: File) {
     apply(plugin = "codenarc")
 
     dependencies {
-        "codenarc"("org.codenarc:CodeNarc:1.0")
+        "codenarc"("org.codenarc:CodeNarc:1.5")
         components {
             withModule("org.codenarc:CodeNarc", CodeNarcRule::class.java)
         }

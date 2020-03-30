@@ -24,14 +24,11 @@ import org.junit.Rule
 
 abstract class FileSystemPropertySpec<T extends FileSystemLocation> extends PropertySpec<T> {
     @Rule
-    TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
+    TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider(getClass())
     def resolver = TestFiles.resolver(tmpDir.testDirectory)
-    def factory = new DefaultFilePropertyFactory(resolver)
-    def baseDir = factory.newDirectoryProperty()
-
-    def setup() {
-        baseDir.set(tmpDir.testDirectory)
-    }
+    def fileCollectionFactory = TestFiles.fileCollectionFactory(tmpDir.testDirectory)
+    def factory = new DefaultFilePropertyFactory(host, resolver, fileCollectionFactory)
+    def baseDir = factory.newDirectoryProperty().fileValue(tmpDir.testDirectory)
 
     def "can set value using absolute file"() {
         given:

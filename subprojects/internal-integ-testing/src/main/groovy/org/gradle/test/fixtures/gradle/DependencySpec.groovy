@@ -27,21 +27,20 @@ class DependencySpec {
     String version
     String preferredVersion
     String strictVersion
-    boolean forSubgraph
     List<String> rejects
     List<ExcludeSpec> exclusions = []
-    boolean inheritConstraints
+    boolean endorseStrictVersions
     String reason
     Map<String, Object> attributes
     List<CapabilitySpec> requestedCapabilities = []
+    ArtifactSelectorSpec artifactSelector
 
-    DependencySpec(String g, String m, String v, String preferredVersion, String strictVersion, Boolean forSubgraph, List<String> rejects, Collection<Map> excludes, Boolean inheritConstraints, String reason, Map<String, Object> attributes) {
+    DependencySpec(String g, String m, String v, String preferredVersion, String strictVersion, List<String> rejects, Collection<Map> excludes, Boolean endorseStrictVersions, String reason, Map<String, Object> attributes, ArtifactSelectorSpec artifactSelector, String requestedCapability) {
         group = g
         module = m
         version = v
         this.preferredVersion = preferredVersion
         this.strictVersion = strictVersion
-        this.forSubgraph = forSubgraph
         this.rejects = rejects?:Collections.<String>emptyList()
         if (excludes) {
             exclusions = excludes.collect { Map exclusion ->
@@ -50,9 +49,14 @@ class DependencySpec {
                 new ExcludeSpec(group, module)
             }
         }
-        this.inheritConstraints = inheritConstraints
+        this.endorseStrictVersions = endorseStrictVersions
         this.reason = reason
         this.attributes = attributes
+        this.artifactSelector = artifactSelector
+        if (requestedCapability) {
+            def parts = requestedCapability.split(':')
+            this.requestedCapabilities << new CapabilitySpec(parts[0], parts[1], parts.size() > 2 ? parts[2] : null)
+        }
     }
 
     DependencySpec attribute(String name, Object value) {

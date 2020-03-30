@@ -19,6 +19,7 @@ package org.gradle.integtests
 import org.gradle.api.internal.tasks.execution.CleanupStaleOutputsExecuter
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.BuildOperationsFixture
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.util.ToBeImplemented
 import spock.lang.Issue
@@ -28,6 +29,7 @@ import spock.lang.Unroll
 class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
 
     @Issue(['GRADLE-2440', 'GRADLE-2579'])
+    @ToBeFixedForInstantExecution
     def 'stale output file is removed after input source directory is emptied.'() {
         def taskWithSources = new TaskWithSources()
         taskWithSources.createInputs()
@@ -434,6 +436,7 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
         skipped(taskWithLocalState.taskPath)
     }
 
+    @ToBeFixedForInstantExecution
     def "up-to-date checks detect removed stale outputs"() {
         buildFile << """                                    
             plugins {
@@ -498,21 +501,26 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
     }
 
     def "task with file tree output can be up-to-date"() {
-        buildFile << """                                     
+        buildFile << """
+            import javax.inject.Inject
+
             plugins {
                 id 'base'
             }
 
-            class TaskWithFileTreeOutput extends DefaultTask {
+            abstract class TaskWithFileTreeOutput extends DefaultTask {
                 @Input
                 String input
-                
+
                 @Internal
                 File outputDir
-                
+
+                @Inject
+                abstract ObjectFactory getObjectFactory()
+
                 @OutputFiles
                 FileCollection getOutputFileTree() {
-                    project.fileTree(outputDir).include('**/myOutput.txt')
+                    objectFactory.fileTree().setDir(outputDir).include('**/myOutput.txt')
                 }
                 
                 @TaskAction
@@ -674,6 +682,8 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
 
         String getBuildScript() {
             """
+            import javax.inject.Inject
+
             apply plugin: 'base'
 
             task ${taskName}(type: MyTask) {
@@ -683,18 +693,20 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
                 outputDir = file("$buildDir/outputDir")
                 outputFile = file("$buildDir/outputFile")
             }
-            
-            class MyTask extends DefaultTask {
+
+            abstract class MyTask extends DefaultTask {
                 @InputDirectory File inputDir
                 @Input String input
                 @InputFile File inputFile
                 @OutputDirectory File outputDir
                 @OutputFile File outputFile
-                
+
+                @Inject abstract FileSystemOperations getFileSystemOperations()
+
                 @TaskAction
                 void doExecute() {
                     outputFile.text = input
-                    project.copy {
+                    fileSystemOperations.copy {
                         into outputDir
                         from(inputDir) {
                             into 'subDir'

@@ -16,6 +16,7 @@
 
 package org.gradle.api.publish.ivy
 
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.test.fixtures.ivy.IvyDescriptor
 import spock.lang.Unroll
 
@@ -50,6 +51,7 @@ class IvyPublishDescriptorCustomizationIntegTest extends AbstractIvyPublishInteg
         """
     }
 
+    @ToBeFixedForInstantExecution
     def "can customize descriptor xml during publication"() {
         when:
         succeeds 'publish'
@@ -114,6 +116,7 @@ class IvyPublishDescriptorCustomizationIntegTest extends AbstractIvyPublishInteg
         }
     }
 
+    @ToBeFixedForInstantExecution
     def "can generate ivy.xml without publishing"() {
         given:
         def moduleName = module.module
@@ -131,10 +134,11 @@ class IvyPublishDescriptorCustomizationIntegTest extends AbstractIvyPublishInteg
         then:
         file('generated-ivy.xml').assertIsFile()
         IvyDescriptor ivy = new IvyDescriptor(file('generated-ivy.xml'))
-        ivy.expectArtifact(moduleName).hasAttributes("jar", "jar", ["compile"])
+        ivy.expectArtifact(moduleName).hasAttributes("jar", "jar", ["compile", "runtime"])
         module.ivyFile.assertDoesNotExist()
     }
 
+    @ToBeFixedForInstantExecution
     def "produces sensible error when withXML fails"() {
         when:
         buildFile << """
@@ -158,6 +162,7 @@ class IvyPublishDescriptorCustomizationIntegTest extends AbstractIvyPublishInteg
         failure.assertHasCause("No such property: foo for class: groovy.util.Node")
     }
 
+    @ToBeFixedForInstantExecution
     def "produces sensible error when withXML modifies publication coordinates"() {
         when:
         buildFile << """
@@ -237,6 +242,7 @@ class IvyPublishDescriptorCustomizationIntegTest extends AbstractIvyPublishInteg
         "'http://my.extra.info'" | null
     }
 
+    @ToBeFixedForInstantExecution
     def "withXml should not loose Gradle metadata marker"() {
         buildFile << """
             publishing {

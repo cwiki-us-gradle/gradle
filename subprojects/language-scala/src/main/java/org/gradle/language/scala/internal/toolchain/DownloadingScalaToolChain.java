@@ -71,19 +71,22 @@ public class DownloadingScalaToolChain implements ScalaToolChainInternal {
     @Override
     public ToolProvider select(ScalaPlatform targetPlatform) {
         try {
-            Configuration scalaClasspath = resolveDependency("org.scala-lang:scala-compiler:" + targetPlatform.getScalaVersion());
-            Configuration zincClasspath = resolveDependency("com.typesafe.zinc:zinc:" + DefaultScalaToolProvider.DEFAULT_ZINC_VERSION);
+            Dependency scalaCompiler = dependencyHandler.create("org.scala-lang:scala-compiler:" + targetPlatform.getScalaVersion());
+            Dependency compilerBridge = dependencyHandler.create("org.scala-sbt:compiler-bridge_" + targetPlatform.getScalaCompatibilityVersion() + ":" + DefaultScalaToolProvider.DEFAULT_ZINC_VERSION + ":sources@jar");
+            Dependency compilerInterface = dependencyHandler.create("org.scala-sbt:compiler-interface:" + DefaultScalaToolProvider.DEFAULT_ZINC_VERSION);
+            Configuration scalaClasspath = resolveDependency(scalaCompiler, compilerBridge, compilerInterface);
             Set<File> resolvedScalaClasspath = scalaClasspath.resolve();
+
+            Configuration zincClasspath = resolveDependency(dependencyHandler.create("org.scala-sbt:zinc_2.12:" + DefaultScalaToolProvider.DEFAULT_ZINC_VERSION));
             Set<File> resolvedZincClasspath = zincClasspath.resolve();
-            return new DefaultScalaToolProvider(gradleUserHomeDir, daemonWorkingDir, workerDaemonFactory, forkOptionsFactory, classPathRegistry, resolvedScalaClasspath, resolvedZincClasspath, classLoaderRegistry, actionExecutionSpecFactory);
+            return new DefaultScalaToolProvider(daemonWorkingDir, workerDaemonFactory, forkOptionsFactory, resolvedScalaClasspath, resolvedZincClasspath, classPathRegistry, classLoaderRegistry, actionExecutionSpecFactory);
 
         } catch(ResolveException resolveException) {
             return new NotFoundScalaToolProvider(resolveException);
         }
     }
 
-    private Configuration resolveDependency(Object dependencyNotation) {
-        Dependency dependency = dependencyHandler.create(dependencyNotation);
-        return configurationContainer.detachedConfiguration(dependency);
+    private Configuration resolveDependency(Dependency... dependencies) {
+        return configurationContainer.detachedConfiguration(dependencies);
     }
 }

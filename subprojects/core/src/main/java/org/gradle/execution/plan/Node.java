@@ -20,11 +20,13 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
 import org.gradle.api.Action;
 import org.gradle.api.Project;
+import org.gradle.internal.resources.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import javax.annotation.OverridingMethodsMustInvokeSuper;
+import java.util.List;
 import java.util.NavigableSet;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -46,6 +48,7 @@ public abstract class Node implements Comparable<Node> {
     private Throwable executionFailure;
     private final NavigableSet<Node> dependencySuccessors = Sets.newTreeSet();
     private final NavigableSet<Node> dependencyPredecessors = Sets.newTreeSet();
+    private MutationInfo mutationInfo = new MutationInfo(this);
 
     public Node() {
         this.state = ExecutionState.UNKNOWN;
@@ -259,6 +262,12 @@ public abstract class Node implements Comparable<Node> {
 
     public abstract Set<Node> getFinalizers();
 
+    public MutationInfo getMutationInfo() {
+        return mutationInfo;
+    }
+
+    public abstract void resolveMutations();
+
     public abstract boolean isPublicNode();
 
     /**
@@ -284,6 +293,11 @@ public abstract class Node implements Comparable<Node> {
      */
     @Nullable
     public abstract Project getOwningProject();
+
+    /**
+     * Returns the resources which should be locked before starting this node.
+     */
+    public abstract List<? extends ResourceLock> getResourcesToLock();
 
     @Override
     public abstract String toString();

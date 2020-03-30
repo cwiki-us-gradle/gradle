@@ -18,7 +18,6 @@ package org.gradle.buildinit.tasks;
 
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
-import org.gradle.api.Incubating;
 import org.gradle.api.internal.tasks.userinput.UserInputHandler;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.Internal;
@@ -46,6 +45,7 @@ import static org.gradle.buildinit.plugins.internal.PackageNameBuilder.toPackage
  * Generates a Gradle project structure.
  */
 public class InitBuild extends DefaultTask {
+    private final String projectDirName = getProject().getProjectDir().getName();
     private String type;
     private String dsl;
     private String testFramework;
@@ -72,7 +72,6 @@ public class InitBuild extends DefaultTask {
      *
      * @since 4.5
      */
-    @Incubating
     @Optional
     @Input
     public String getDsl() {
@@ -86,10 +85,9 @@ public class InitBuild extends DefaultTask {
      *
      * @since 5.0
      */
-    @Incubating
     @Input
     public String getProjectName() {
-        return projectName == null ? getProject().getProjectDir().getName() : projectName;
+        return projectName == null ? projectDirName : projectName;
     }
 
     /**
@@ -99,7 +97,6 @@ public class InitBuild extends DefaultTask {
      *
      * @since 5.0
      */
-    @Incubating
     @Input
     public String getPackageName() {
         return packageName == null ? "" : packageName;
@@ -233,7 +230,6 @@ public class InitBuild extends DefaultTask {
      *
      * @since 4.5
      */
-    @Incubating
     @Option(option = "dsl", description = "Set the build script DSL to be used in generated scripts.")
     public void setDsl(String dsl) {
         this.dsl = dsl;
@@ -244,7 +240,6 @@ public class InitBuild extends DefaultTask {
      *
      * @since 4.5
      */
-    @Incubating
     @OptionValues("dsl")
     @SuppressWarnings("unused")
     public List<String> getAvailableDSLs() {
@@ -273,7 +268,6 @@ public class InitBuild extends DefaultTask {
      *
      * @since 5.0
      */
-    @Incubating
     @Option(option = "project-name", description = "Set the project name.")
     public void setProjectName(String projectName) {
         this.projectName = projectName;
@@ -284,7 +278,6 @@ public class InitBuild extends DefaultTask {
      *
      * @since 5.0
      */
-    @Incubating
     @Option(option = "package", description = "Set the package for source files.")
     public void setPackageName(String packageName) {
         this.packageName = packageName;

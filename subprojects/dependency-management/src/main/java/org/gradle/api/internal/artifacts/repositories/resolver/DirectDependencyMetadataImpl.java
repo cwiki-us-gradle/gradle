@@ -16,28 +16,38 @@
 
 package org.gradle.api.internal.artifacts.repositories.resolver;
 
+import org.gradle.api.artifacts.DependencyArtifact;
 import org.gradle.api.artifacts.DirectDependencyMetadata;
+
+import java.util.Collections;
+import java.util.List;
 
 public class DirectDependencyMetadataImpl extends AbstractDependencyImpl<DirectDependencyMetadata> implements DirectDependencyMetadata {
 
-    boolean inheriting = false;
+    private boolean endorsing = false;
 
     public DirectDependencyMetadataImpl(String group, String name, String version) {
         super(group, name, version);
     }
 
     @Override
-    public void inheritConstraints() {
-        inheriting = true;
+    public void endorseStrictVersions() {
+        endorsing = true;
     }
 
     @Override
-    public void notInheritConstraints() {
-        inheriting = false;
+    public void doNotEndorseStrictVersions() {
+        endorsing = false;
     }
 
     @Override
-    public boolean isInheriting() {
-        return inheriting;
+    public boolean isEndorsingStrictVersions() {
+        return endorsing;
     }
+
+    @Override
+    public List<DependencyArtifact> getArtifactSelectors() {
+        return Collections.emptyList();
+    }
+
 }

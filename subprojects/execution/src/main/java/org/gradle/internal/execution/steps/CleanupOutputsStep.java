@@ -16,9 +16,9 @@
 
 package org.gradle.internal.execution.steps;
 
-import com.google.common.collect.Iterables;
 import org.gradle.internal.execution.BeforeExecutionContext;
 import org.gradle.internal.execution.InputChangesContext;
+import org.gradle.internal.execution.OutputChangeListener;
 import org.gradle.internal.execution.Result;
 import org.gradle.internal.execution.Step;
 import org.gradle.internal.execution.UnitOfWork;
@@ -36,13 +36,16 @@ import java.util.Set;
 public class CleanupOutputsStep<C extends InputChangesContext, R extends Result> implements Step<C, R> {
 
     private final Deleter deleter;
+    private final OutputChangeListener outputChangeListener;
     private final Step<? super C, ? extends R> delegate;
 
     public CleanupOutputsStep(
         Deleter deleter,
+        OutputChangeListener outputChangeListener,
         Step<? super C, ? extends R> delegate
     ) {
         this.deleter = deleter;
+        this.outputChangeListener = outputChangeListener;
         this.delegate = delegate;
     }
 
@@ -67,18 +70,16 @@ public class CleanupOutputsStep<C extends InputChangesContext, R extends Result>
     private void cleanupOverlappingOutputs(BeforeExecutionContext context, UnitOfWork work) {
         context.getAfterPreviousExecutionState().ifPresent(previousOutputs -> {
             Set<File> outputDirectoriesToPreserve = new HashSet<>();
-            work.visitOutputProperties((name, type, roots) -> {
+            work.visitOutputProperties((name, type, root) -> {
                 switch (type) {
                     case FILE:
-                        for (File root : roots) {
-                            File parentFile = root.getParentFile();
-                            if (parentFile != null) {
-                                outputDirectoriesToPreserve.add(parentFile);
-                            }
+                        File parentFile = root.getParentFile();
+                        if (parentFile != null) {
+                            outputDirectoriesToPreserve.add(parentFile);
                         }
                         break;
                     case DIRECTORY:
-                        Iterables.addAll(outputDirectoriesToPreserve, roots);
+                        outputDirectoriesToPreserve.add(root);
                         break;
                     default:
                         throw new AssertionError();
@@ -91,6 +92,8 @@ public class CleanupOutputsStep<C extends InputChangesContext, R extends Result>
             );
             for (FileCollectionFingerprint fileCollectionFingerprint : previousOutputs.getOutputFileProperties().values()) {
                 try {
+                    // Previous outputs can be in a different place than the current outputs
+                    outputChangeListener.beforeOutputChange(fileCollectionFingerprint.getRootPaths());
                     cleaner.cleanupOutputs(fileCollectionFingerprint);
                 } catch (IOException e) {
                     throw new UncheckedIOException("Failed to clean up output files for " + work.getDisplayName(), e);
@@ -100,23 +103,21 @@ public class CleanupOutputsStep<C extends InputChangesContext, R extends Result>
     }
 
     private void cleanupExclusiveOutputs(UnitOfWork work) {
-        work.visitOutputProperties((name, type, roots) -> {
-            for (File root : roots) {
-                if (root.exists()) {
-                    try {
-                        switch (type) {
-                            case FILE:
-                                deleter.delete(root);
-                                break;
-                            case DIRECTORY:
-                                deleter.ensureEmptyDirectory(root, true);
+        work.visitOutputProperties((name, type, root) -> {
+            if (root.exists()) {
+                try {
+                    switch (type) {
+                        case FILE:
+                            deleter.delete(root);
                             break;
-                            default:
-                                throw new AssertionError();
-                        }
-                    } catch (IOException ex) {
-                        throw new UncheckedIOException(ex);
+                        case DIRECTORY:
+                            deleter.ensureEmptyDirectory(root);
+                            break;
+                        default:
+                            throw new AssertionError();
                     }
+                } catch (IOException ex) {
+                    throw new UncheckedIOException(ex);
                 }
             }
         });

@@ -17,11 +17,15 @@
 package org.gradle.api.internal.model;
 
 import org.gradle.api.DomainObjectSet;
+import org.gradle.api.ExtensiblePolymorphicDomainObjectContainer;
 import org.gradle.api.InvalidUserCodeException;
 import org.gradle.api.Named;
 import org.gradle.api.NamedDomainObjectContainer;
 import org.gradle.api.NamedDomainObjectFactory;
+import org.gradle.api.NamedDomainObjectList;
+import org.gradle.api.NamedDomainObjectSet;
 import org.gradle.api.file.ConfigurableFileCollection;
+import org.gradle.api.file.ConfigurableFileTree;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFile;
@@ -31,19 +35,17 @@ import org.gradle.api.internal.collections.DomainObjectCollectionFactory;
 import org.gradle.api.internal.file.DefaultSourceDirectorySet;
 import org.gradle.api.internal.file.FileCollectionFactory;
 import org.gradle.api.internal.file.FilePropertyFactory;
-import org.gradle.api.internal.file.FileResolver;
 import org.gradle.api.internal.file.collections.DirectoryFileTreeFactory;
-import org.gradle.api.internal.provider.DefaultListProperty;
-import org.gradle.api.internal.provider.DefaultMapProperty;
-import org.gradle.api.internal.provider.DefaultProperty;
-import org.gradle.api.internal.provider.DefaultSetProperty;
+import org.gradle.api.internal.provider.PropertyFactory;
 import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.provider.SetProperty;
 import org.gradle.api.reflect.ObjectInstantiationException;
+import org.gradle.api.tasks.util.PatternSet;
 import org.gradle.internal.Cast;
+import org.gradle.internal.Factory;
 import org.gradle.internal.reflect.Instantiator;
 import org.gradle.internal.reflect.JavaReflectionUtil;
 
@@ -54,17 +56,20 @@ import java.util.Set;
 public class DefaultObjectFactory implements ObjectFactory {
     private final Instantiator instantiator;
     private final NamedObjectInstantiator namedObjectInstantiator;
-    private final FileResolver fileResolver;
     private final DirectoryFileTreeFactory directoryFileTreeFactory;
+    private final Factory<PatternSet> patternSetFactory;
+    private final PropertyFactory propertyFactory;
     private final FilePropertyFactory filePropertyFactory;
     private final FileCollectionFactory fileCollectionFactory;
     private final DomainObjectCollectionFactory domainObjectCollectionFactory;
 
-    public DefaultObjectFactory(Instantiator instantiator, NamedObjectInstantiator namedObjectInstantiator, FileResolver fileResolver, DirectoryFileTreeFactory directoryFileTreeFactory, FilePropertyFactory filePropertyFactory, FileCollectionFactory fileCollectionFactory, DomainObjectCollectionFactory domainObjectCollectionFactory) {
+    public DefaultObjectFactory(Instantiator instantiator, NamedObjectInstantiator namedObjectInstantiator, DirectoryFileTreeFactory directoryFileTreeFactory, Factory<PatternSet> patternSetFactory,
+                                PropertyFactory propertyFactory, FilePropertyFactory filePropertyFactory, FileCollectionFactory fileCollectionFactory, DomainObjectCollectionFactory domainObjectCollectionFactory) {
         this.instantiator = instantiator;
         this.namedObjectInstantiator = namedObjectInstantiator;
-        this.fileResolver = fileResolver;
         this.directoryFileTreeFactory = directoryFileTreeFactory;
+        this.patternSetFactory = patternSetFactory;
+        this.propertyFactory = propertyFactory;
         this.filePropertyFactory = filePropertyFactory;
         this.fileCollectionFactory = fileCollectionFactory;
         this.domainObjectCollectionFactory = domainObjectCollectionFactory;
@@ -86,8 +91,13 @@ public class DefaultObjectFactory implements ObjectFactory {
     }
 
     @Override
+    public ConfigurableFileTree fileTree() {
+        return fileCollectionFactory.fileTree();
+    }
+
+    @Override
     public SourceDirectorySet sourceDirectorySet(final String name, final String displayName) {
-        return new DefaultSourceDirectorySet(name, displayName, fileResolver, directoryFileTreeFactory, DefaultObjectFactory.this);
+        return new DefaultSourceDirectorySet(name, displayName, patternSetFactory, fileCollectionFactory, directoryFileTreeFactory, DefaultObjectFactory.this);
     }
 
     @Override
@@ -111,6 +121,21 @@ public class DefaultObjectFactory implements ObjectFactory {
     }
 
     @Override
+    public <T> ExtensiblePolymorphicDomainObjectContainer<T> polymorphicDomainObjectContainer(Class<T> elementType) {
+        return domainObjectCollectionFactory.newPolymorphicDomainObjectContainer(elementType);
+    }
+
+    @Override
+    public <T> NamedDomainObjectSet<T> namedDomainObjectSet(Class<T> elementType) {
+        return domainObjectCollectionFactory.newNamedDomainObjectSet(elementType);
+    }
+
+    @Override
+    public <T> NamedDomainObjectList<T> namedDomainObjectList(Class<T> elementType) {
+        return domainObjectCollectionFactory.newNamedDomainObjectList(elementType);
+    }
+
+    @Override
     public <T> DomainObjectSet<T> domainObjectSet(Class<T> elementType) {
         return domainObjectCollectionFactory.newDomainObjectSet(elementType);
     }
@@ -123,7 +148,7 @@ public class DefaultObjectFactory implements ObjectFactory {
 
         if (valueType.isPrimitive()) {
             // Kotlin passes these types for its own basic types
-            return Cast.uncheckedCast(property(JavaReflectionUtil.getWrapperTypeForPrimitiveType(valueType)));
+            return Cast.uncheckedNonnullCast(property(JavaReflectionUtil.getWrapperTypeForPrimitiveType(valueType)));
         }
         if (List.class.isAssignableFrom(valueType)) {
             throw new InvalidUserCodeException(invalidPropertyCreationError("listProperty()", "List<T>"));
@@ -137,7 +162,7 @@ public class DefaultObjectFactory implements ObjectFactory {
             throw new InvalidUserCodeException(invalidPropertyCreationError("fileProperty()", "RegularFile"));
         }
 
-        return new DefaultProperty<T>(valueType);
+        return propertyFactory.property(valueType);
     }
 
     private String invalidPropertyCreationError(String correctMethodName, String propertyType) {
@@ -148,30 +173,30 @@ public class DefaultObjectFactory implements ObjectFactory {
     public <T> ListProperty<T> listProperty(Class<T> elementType) {
         if (elementType.isPrimitive()) {
             // Kotlin passes these types for its own basic types
-            return Cast.uncheckedCast(listProperty(JavaReflectionUtil.getWrapperTypeForPrimitiveType(elementType)));
+            return Cast.uncheckedNonnullCast(listProperty(JavaReflectionUtil.getWrapperTypeForPrimitiveType(elementType)));
         }
-        return new DefaultListProperty<T>(elementType);
+        return propertyFactory.listProperty(elementType);
     }
 
     @Override
     public <T> SetProperty<T> setProperty(Class<T> elementType) {
         if (elementType.isPrimitive()) {
             // Kotlin passes these types for its own basic types
-            return Cast.uncheckedCast(setProperty(JavaReflectionUtil.getWrapperTypeForPrimitiveType(elementType)));
+            return Cast.uncheckedNonnullCast(setProperty(JavaReflectionUtil.getWrapperTypeForPrimitiveType(elementType)));
         }
-        return new DefaultSetProperty<T>(elementType);
+        return propertyFactory.setProperty(elementType);
     }
 
     @Override
     public <K, V> MapProperty<K, V> mapProperty(Class<K> keyType, Class<V> valueType) {
         if (keyType.isPrimitive()) {
             // Kotlin passes these types for its own basic types
-            return Cast.uncheckedCast(mapProperty(JavaReflectionUtil.getWrapperTypeForPrimitiveType(keyType), valueType));
+            return Cast.uncheckedNonnullCast(mapProperty(JavaReflectionUtil.getWrapperTypeForPrimitiveType(keyType), valueType));
         }
         if (valueType.isPrimitive()) {
             // Kotlin passes these types for its own basic types
-            return Cast.uncheckedCast(mapProperty(keyType, JavaReflectionUtil.getWrapperTypeForPrimitiveType(valueType)));
+            return Cast.uncheckedNonnullCast(mapProperty(keyType, JavaReflectionUtil.getWrapperTypeForPrimitiveType(valueType)));
         }
-        return new DefaultMapProperty<K, V>(keyType, valueType);
+        return propertyFactory.mapProperty(keyType, valueType);
     }
 }

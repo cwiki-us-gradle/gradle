@@ -16,6 +16,8 @@
 
 package org.gradle.integtests.publish.ivy
 
+import org.gradle.api.publish.ivy.internal.publication.DefaultIvyPublication
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.test.fixtures.ivy.IvyJavaModule
 import spock.lang.Unroll
 
@@ -23,6 +25,7 @@ class IvyPublishResolvedVersionsJavaIntegTest extends AbstractIvyPublishIntegTes
     IvyJavaModule javaLibrary = javaLibrary(ivyRepo.module("org.gradle.test", "publishTest", "1.9"))
 
     @Unroll("can publish java-library with dependencies (#apiMapping, #runtimeMapping)")
+    @ToBeFixedForInstantExecution
     def "can publish java-library with dependencies (runtime last)"() {
         given:
         javaLibrary(ivyRepo.module("org.test", "foo", "1.0")).withModuleMetadata().publish()
@@ -85,7 +88,7 @@ class IvyPublishResolvedVersionsJavaIntegTest extends AbstractIvyPublishIntegTes
                 expectFiles "foo-1.0.jar", "publishTest-1.9.jar"
             }
             withoutModuleMetadata {
-                expectFiles "foo-1.0.jar", "publishTest-1.9.jar"
+                expectFiles "bar-1.1.jar", "foo-1.1.jar", "publishTest-1.9.jar"
             }
         }
 
@@ -102,6 +105,7 @@ class IvyPublishResolvedVersionsJavaIntegTest extends AbstractIvyPublishIntegTes
     }
 
     @Unroll("can publish java-library with dependencies (#runtimeMapping, #apiMapping)")
+    @ToBeFixedForInstantExecution
     def "can publish java-library with dependencies (runtime first)"() {
         given:
         javaLibrary(ivyRepo.module("org.test", "foo", "1.0")).withModuleMetadata().publish()
@@ -164,7 +168,7 @@ class IvyPublishResolvedVersionsJavaIntegTest extends AbstractIvyPublishIntegTes
                 expectFiles "foo-1.0.jar", "publishTest-1.9.jar"
             }
             withoutModuleMetadata {
-                expectFiles "foo-1.0.jar", "publishTest-1.9.jar"
+                expectFiles "bar-1.1.jar", "foo-1.1.jar", "publishTest-1.9.jar"
             }
         }
 
@@ -187,6 +191,7 @@ class IvyPublishResolvedVersionsJavaIntegTest extends AbstractIvyPublishIntegTes
      * or when the component is not a Java library and we don't have a default.
      */
     @Unroll("can publish resolved versions from a different configuration (#config)")
+    @ToBeFixedForInstantExecution
     def "can publish resolved versions from a different configuration"() {
         given:
         javaLibrary(ivyRepo.module("org.test", "foo", "1.0")).withModuleMetadata().publish()
@@ -236,8 +241,8 @@ class IvyPublishResolvedVersionsJavaIntegTest extends AbstractIvyPublishIntegTes
         }
 
         and:
-        javaLibrary.parsedIvy.assertConfigurationDependsOn('compile', "org.test:foo:1.0")
-        javaLibrary.parsedIvy.assertConfigurationDependsOn('runtime', 'org.test:bar:1.1')
+        javaLibrary.parsedIvy.assertConfigurationDependsOn('compile', 'org.test:foo:1.0')
+        javaLibrary.parsedIvy.assertConfigurationDependsOn('runtime', 'org.test:foo:1.0', 'org.test:bar:1.1')
 
         and:
         resolveArtifacts(javaLibrary) {
@@ -255,7 +260,7 @@ class IvyPublishResolvedVersionsJavaIntegTest extends AbstractIvyPublishIntegTes
                 expectFiles "foo-1.0.jar", "publishTest-1.9.jar"
             }
             withoutModuleMetadata {
-                expectFiles "foo-1.0.jar", "publishTest-1.9.jar"
+                expectFiles "bar-1.1.jar", "foo-1.0.jar", "publishTest-1.9.jar"
             }
         }
 
@@ -277,6 +282,7 @@ class IvyPublishResolvedVersionsJavaIntegTest extends AbstractIvyPublishIntegTes
     }
 
     @Unroll("can publish resolved versions from dependency constraints (#apiMapping, #runtimeMapping)")
+    @ToBeFixedForInstantExecution
     def "can publish resolved versions from dependency constraints"() {
         javaLibrary(ivyRepo.module("org.test", "foo", "1.0")).withModuleMetadata().publish()
         javaLibrary(ivyRepo.module("org.test", "bar", "1.0")).withModuleMetadata().publish()
@@ -323,13 +329,13 @@ class IvyPublishResolvedVersionsJavaIntegTest extends AbstractIvyPublishIntegTes
             assert it.org == 'org.test'
             assert it.module == 'foo'
             assert it.revision == '1.0'
-            assert it.conf == 'compile->default'
+            assert it.confs == ['compile->default', 'runtime->default'] as Set
         }
         dependencies.get("org.test:bar:1.1").with {
             assert it.org == 'org.test'
             assert it.module == 'bar'
             assert it.revision == '1.1'
-            assert it.conf == 'runtime->default'
+            assert it.confs == ['runtime->default'] as Set
         }
         javaLibrary.parsedModuleMetadata.variant("runtimeElements") {
             constraint("org.test:bar:1.1") {
@@ -360,7 +366,7 @@ class IvyPublishResolvedVersionsJavaIntegTest extends AbstractIvyPublishIntegTes
                 expectFiles "foo-1.0.jar", "publishTest-1.9.jar"
             }
             withoutModuleMetadata {
-                expectFiles "foo-1.0.jar", "publishTest-1.9.jar"
+                expectFiles "bar-1.1.jar", "foo-1.0.jar", "publishTest-1.9.jar"
             }
         }
 
@@ -427,6 +433,7 @@ $append
     // substitution rule (via a plugin for example) that you are not aware of.
     // Ideally we should warn when such things happen (linting).
     @Unroll
+    @ToBeFixedForInstantExecution
     def "substituted dependencies are also substituted in the generated Ivy file"() {
         javaLibrary(ivyRepo.module("org", "foo", "1.0")).withModuleMetadata().publish()
         javaLibrary(ivyRepo.module("org", "bar", "1.0"))
@@ -499,6 +506,7 @@ $append
         ]
     }
 
+    @ToBeFixedForInstantExecution
     def "can substitute with a project dependency"() {
         given:
         settingsFile << """
@@ -546,5 +554,40 @@ $append
             dependency("com.acme", "lib", "1.45")
             noMoreDependencies()
         }
+    }
+
+    @ToBeFixedForInstantExecution
+    def "can publish different resolved versions for the same module"() {
+        given:
+        javaLibrary(ivyRepo.module("org", "foo", "1.0")).publish()
+        javaLibrary(ivyRepo.module("org", "foo", "1.1")).publish()
+        createBuildScripts """
+            publishing {
+                publications {
+                    ivy(IvyPublication) {
+                        from components.java
+                        versionMapping {
+                            usage('java-api') {
+                                fromResolutionResult()
+                            }
+                        }
+                    }
+                }
+            }
+
+            dependencies {
+                api 'org:foo:1.0'
+                compileOnly 'org:foo:1.1'
+            }
+        """
+
+        when:
+        succeeds "publish"
+
+        then:
+        outputDoesNotContain(DefaultIvyPublication.UNSUPPORTED_FEATURE)
+        javaLibrary.assertPublishedAsJavaModule()
+        javaLibrary.assertApiDependencies("org:foo:1.1")
+        javaLibrary.assertRuntimeDependencies("org:foo:1.0")
     }
 }

@@ -110,15 +110,14 @@ abstract class AbstractIvyPublishIntegTest extends AbstractIntegrationSpec imple
             repositories {
                 ivy { 
                     url "${ivyRepo.uri}"
+                    metadataSources {
+                        ${params.resolveModuleMetadata?'gradleMetadata':'ivyDescriptor'}()
+                        ${params.resolveModuleMetadata?'':'ignoreGradleMetadataRedirection()'}
+                    }
                 }
             }
 
             dependencies {
-               attributesSchema { 
-                getMatchingStrategy(Category.CATEGORY_ATTRIBUTE)
-                   .disambiguationRules
-                   .add(PlatformSupport.PreferRegularPlatform)
-               }
                resolve($dependencyNotation) $extraArtifacts
                $optional
             }
@@ -168,8 +167,8 @@ abstract class AbstractIvyPublishIntegTest extends AbstractIntegrationSpec imple
         }
 
         void validate() {
-            singleValidation(true, withModuleMetadataSpec)
             singleValidation(false, withoutModuleMetadataSpec)
+            singleValidation(true, withModuleMetadataSpec)
         }
 
         void singleValidation(boolean withModuleMetadata, SingleArtifactResolutionResultSpec expectationSpec) {

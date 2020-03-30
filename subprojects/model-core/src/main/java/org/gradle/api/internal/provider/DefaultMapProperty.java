@@ -17,44 +17,50 @@
 package org.gradle.api.internal.provider;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.gradle.api.Action;
+import org.gradle.api.Task;
 import org.gradle.api.internal.tasks.TaskDependencyResolveContext;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Provider;
+import org.gradle.internal.Cast;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
 
-public class DefaultMapProperty<K, V> extends AbstractProperty<Map<K, V>> implements MapProperty<K, V>, MapProviderInternal<K, V> {
-
-    private static final MapCollectors.EmptyMap EMPTY_MAP = new MapCollectors.EmptyMap();
-    private static final MapCollectors.NoValue NO_VALUE = new MapCollectors.NoValue();
-
+public class DefaultMapProperty<K, V> extends AbstractProperty<Map<K, V>, MapSupplier<K, V>> implements MapProperty<K, V>, MapProviderInternal<K, V> {
     private static final String NULL_KEY_FORBIDDEN_MESSAGE = String.format("Cannot add an entry with a null key to a property of type %s.", Map.class.getSimpleName());
     private static final String NULL_VALUE_FORBIDDEN_MESSAGE = String.format("Cannot add an entry with a null value to a property of type %s.", Map.class.getSimpleName());
+
+    private static final MapSupplier<Object, Object> NO_VALUE = new NoValueSupplier<>(Value.missing());
 
     private final Class<K> keyType;
     private final Class<V> valueType;
     private final ValueCollector<K> keyCollector;
     private final MapEntryCollector<K, V> entryCollector;
-    private MapCollector<K, V> convention = (MapCollector<K, V>) NO_VALUE;
-    private MapCollector<K, V> defaultValue = (MapCollector<K, V>) EMPTY_MAP;
-    private MapCollector<K, V> value;
+    private MapSupplier<K, V> defaultValue = emptySupplier();
 
-    public DefaultMapProperty(Class<K> keyType, Class<V> valueType) {
-        applyDefaultValue();
+    public DefaultMapProperty(PropertyHost propertyHost, Class<K> keyType, Class<V> valueType) {
+        super(propertyHost);
         this.keyType = keyType;
         this.valueType = valueType;
-        keyCollector = new ValidatingValueCollector<K>(Set.class, keyType, ValueSanitizers.forType(keyType));
-        entryCollector = new ValidatingMapEntryCollector<K, V>(keyType, valueType, ValueSanitizers.forType(keyType), ValueSanitizers.forType(valueType));
+        keyCollector = new ValidatingValueCollector<>(Set.class, keyType, ValueSanitizers.forType(keyType));
+        entryCollector = new ValidatingMapEntryCollector<>(keyType, valueType, ValueSanitizers.forType(keyType), ValueSanitizers.forType(valueType));
+        init(defaultValue, noValueSupplier());
+    }
+
+    private MapSupplier<K, V> emptySupplier() {
+        return new EmptySupplier();
+    }
+
+    private MapSupplier<K, V> noValueSupplier() {
+        return Cast.uncheckedCast(NO_VALUE);
     }
 
     @Nullable
@@ -85,57 +91,14 @@ public class DefaultMapProperty<K, V> extends AbstractProperty<Map<K, V>> implem
     }
 
     @Override
-    public boolean isPresent() {
-        beforeRead();
-        return value.present();
-    }
-
-    @Override
-    public Map<K, V> get() {
-        beforeRead();
-        Map<K, V> entries = new LinkedHashMap<K, V>();
-        value.collectInto(entryCollector, entries);
-        return ImmutableMap.copyOf(entries);
-    }
-
-    @Nullable
-    @Override
-    public Map<K, V> getOrNull() {
-        beforeRead();
-        return doGetOrNull();
-    }
-
-    @Nullable
-    private Map<K, V> doGetOrNull() {
-        Map<K, V> entries = new LinkedHashMap<K, V>();
-        if (!value.maybeCollectInto(entryCollector, entries)) {
-            return null;
-        }
-        return ImmutableMap.copyOf(entries);
-    }
-
-    @Override
     public Provider<V> getting(final K key) {
-        return new DefaultProvider<V>(new Callable<V>() {
-            @Override
-            @Nullable
-            public V call() {
-                beforeRead();
-                Map<K, V> dest = new LinkedHashMap<K, V>();
-                if (value.maybeCollectInto(entryCollector, dest)) {
-                    return dest.get(key);
-                }
-                return null;
-            }
-        });
+        return new EntryProvider(key);
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public MapProperty<K, V> empty() {
-        if (beforeMutate()) {
-            set((MapCollector<K, V>) EMPTY_MAP);
-        }
+        setSupplier(emptySupplier());
         return this;
     }
 
@@ -156,24 +119,17 @@ public class DefaultMapProperty<K, V> extends AbstractProperty<Map<K, V>> implem
     @SuppressWarnings("unchecked")
     public void set(@Nullable Map<? extends K, ? extends V> entries) {
         if (entries == null) {
-            if (beforeReset()) {
-                set(convention);
-                this.defaultValue = (MapCollector<K, V>) NO_VALUE;
-            }
-            return;
-        }
-        if (beforeMutate()) {
-            set(new MapCollectors.EntriesFromMap<K, V>(entries));
+            discardValue();
+            defaultValue = noValueSupplier();
+        } else {
+            setSupplier(new CollectingSupplier(new MapCollectors.EntriesFromMap<>(entries)));
         }
     }
 
     @Override
     public void set(Provider<? extends Map<? extends K, ? extends V>> provider) {
-        if (!beforeMutate()) {
-            return;
-        }
         ProviderInternal<? extends Map<? extends K, ? extends V>> p = checkMapProvider(provider);
-        set(new MapCollectors.EntriesFromMapProvider<K, V>(p));
+        setSupplier(new CollectingSupplier(new MapCollectors.EntriesFromMapProvider<>(p)));
     }
 
     @Override
@@ -188,54 +144,39 @@ public class DefaultMapProperty<K, V> extends AbstractProperty<Map<K, V>> implem
         return this;
     }
 
-    private void set(MapCollector<K, V> collector) {
-        value = collector;
-    }
-
     @Override
     public void put(K key, V value) {
         Preconditions.checkNotNull(key, NULL_KEY_FORBIDDEN_MESSAGE);
         Preconditions.checkNotNull(value, NULL_VALUE_FORBIDDEN_MESSAGE);
-        if (!beforeMutate()) {
-            return;
-        }
-        addCollector(new MapCollectors.SingleEntry<K, V>(key, value));
+        addCollector(new MapCollectors.SingleEntry<>(key, value));
     }
 
     @Override
     public void put(K key, Provider<? extends V> providerOfValue) {
         Preconditions.checkNotNull(key, NULL_KEY_FORBIDDEN_MESSAGE);
         Preconditions.checkNotNull(providerOfValue, NULL_VALUE_FORBIDDEN_MESSAGE);
-        if (!beforeMutate()) {
-            return;
-        }
         ProviderInternal<? extends V> p = Providers.internal(providerOfValue);
         if (p.getType() != null && !valueType.isAssignableFrom(p.getType())) {
             throw new IllegalArgumentException(String.format("Cannot add an entry to a property of type %s with values of type %s using a provider of type %s.",
                 Map.class.getName(), valueType.getName(), p.getType().getName()));
         }
-        addCollector(new MapCollectors.EntryWithValueFromProvider<K, V>(key, p));
+        addCollector(new MapCollectors.EntryWithValueFromProvider<>(key, p));
     }
 
     @Override
     public void putAll(Map<? extends K, ? extends V> entries) {
-        if (!beforeMutate()) {
-            return;
-        }
-        addCollector(new MapCollectors.EntriesFromMap<K, V>(entries));
+        addCollector(new MapCollectors.EntriesFromMap<>(entries));
     }
 
     @Override
     public void putAll(Provider<? extends Map<? extends K, ? extends V>> provider) {
-        if (!beforeMutate()) {
-            return;
-        }
         ProviderInternal<? extends Map<? extends K, ? extends V>> p = checkMapProvider(provider);
-        addCollector(new MapCollectors.EntriesFromMapProvider<K, V>(p));
+        addCollector(new MapCollectors.EntriesFromMapProvider<>(p));
     }
 
     private void addCollector(MapCollector<K, V> collector) {
-        value = new PlusCollector<>(value, collector);
+        assertCanMutate();
+        setSupplier(getExplicitValue(defaultValue).plus(collector));
     }
 
     @SuppressWarnings("unchecked")
@@ -261,38 +202,33 @@ public class DefaultMapProperty<K, V> extends AbstractProperty<Map<K, V>> implem
     }
 
     @Override
-    public MapProperty<K, V> convention(Map<? extends K, ? extends V> value) {
-        convention(new MapCollectors.EntriesFromMap<K, V>(value));
+    public MapProperty<K, V> convention(@Nullable Map<? extends K, ? extends V> value) {
+        if (value == null) {
+            setConvention(noValueSupplier());
+        } else {
+            setConvention(new CollectingSupplier(new MapCollectors.EntriesFromMap<>(value)));
+        }
         return this;
     }
 
     @Override
     public MapProperty<K, V> convention(Provider<? extends Map<? extends K, ? extends V>> valueProvider) {
-        convention(new MapCollectors.EntriesFromMapProvider<>(Providers.internal(valueProvider)));
+        setConvention(new CollectingSupplier(new MapCollectors.EntriesFromMapProvider<>(Providers.internal(valueProvider))));
         return this;
-    }
-
-    private void convention(MapCollector<K, V> collector) {
-        if (shouldApplyConvention()) {
-            this.value = collector;
-        }
-        this.convention = collector;
     }
 
     public List<? extends ProviderInternal<? extends Map<? extends K, ? extends V>>> getProviders() {
         List<ProviderInternal<? extends Map<? extends K, ? extends V>>> providers = new ArrayList<>();
-        value.visit(providers);
+        getSupplier().visit(providers);
         return providers;
     }
 
     public void providers(List<? extends ProviderInternal<? extends Map<? extends K, ? extends V>>> providers) {
-        if (!beforeMutate()) {
-            return;
-        }
-        value = defaultValue;
+        MapSupplier<K, V> value = defaultValue;
         for (ProviderInternal<? extends Map<? extends K, ? extends V>> provider : providers) {
-            value = new PlusCollector<K, V>(value, new MapCollectors.EntriesFromMapProvider<K, V>(provider));
+            value = value.plus(new MapCollectors.EntriesFromMapProvider<>(provider));
         }
+        setSupplier(value);
     }
 
     @Override
@@ -301,50 +237,52 @@ public class DefaultMapProperty<K, V> extends AbstractProperty<Map<K, V>> implem
     }
 
     @Override
-    public String toString() {
-        return String.format("Map(%s->%s, %s)", keyType.getSimpleName().toLowerCase(), valueType.getSimpleName(), value.toString());
+    protected String describeContents() {
+        return String.format("Map(%s->%s, %s)", keyType.getSimpleName().toLowerCase(), valueType.getSimpleName(), getSupplier().toString());
     }
 
     @Override
-    protected void applyDefaultValue() {
-        value = defaultValue;
+    protected Value<? extends Map<K, V>> calculateOwnValue(MapSupplier<K, V> value) {
+        return value.calculateValue();
     }
 
     @Override
-    @SuppressWarnings("unchecked")
-    protected void makeFinal() {
-        Map<K, V> entries = doGetOrNull();
-        if (entries != null) {
-            if (entries.isEmpty()) {
-                set((MapCollector<K, V>) EMPTY_MAP);
-            } else {
-                set(new MapCollectors.EntriesFromMap<K, V>(entries));
-            }
+    protected MapSupplier<K, V> finalValue(MapSupplier<K, V> value) {
+        Value<? extends Map<K, V>> result = calculateOwnValue(value);
+        if (!result.isMissing()) {
+            Map<K, V> entries = result.get();
+            return new FixedSuppler<>(entries);
+        } else if (result.getPathToOrigin().isEmpty()) {
+            return noValueSupplier();
         } else {
-            set((MapCollector<K, V>) NO_VALUE);
+            return new NoValueSupplier<>(result);
         }
     }
 
-    @Override
-    public boolean maybeVisitBuildDependencies(TaskDependencyResolveContext context) {
-        if (super.maybeVisitBuildDependencies(context)) {
-            return true;
+    private class EntryProvider extends AbstractMinimalProvider<V> {
+        private final K key;
+
+        public EntryProvider(K key) {
+            this.key = key;
         }
-        return value.maybeVisitBuildDependencies(context);
+
+        @Nullable
+        @Override
+        public Class<V> getType() {
+            return valueType;
+        }
+
+        @Override
+        protected Value<? extends V> calculateOwnValue() {
+            Value<? extends Map<K, V>> result = DefaultMapProperty.this.calculateOwnValue();
+            if (result.isMissing()) {
+                return result.asType();
+            }
+            return Value.ofNullable(result.get().get(key));
+        }
     }
 
-    @Override
-    public boolean isContentProducedByTask() {
-        return super.isContentProducedByTask() || value.isContentProducedByTask();
-    }
-
-    @Override
-    public boolean isValueProducedByTask() {
-        return value.isValueProducedByTask();
-    }
-
-    private class KeySetProvider extends AbstractReadOnlyProvider<Set<K>> {
-
+    private class KeySetProvider extends AbstractMinimalProvider<Set<K>> {
         @Nullable
         @Override
         @SuppressWarnings("unchecked")
@@ -353,22 +291,208 @@ public class DefaultMapProperty<K, V> extends AbstractProperty<Map<K, V>> implem
         }
 
         @Override
-        public Set<K> get() {
+        protected Value<? extends Set<K>> calculateOwnValue() {
             beforeRead();
-            Set<K> keys = new LinkedHashSet<K>();
-            value.collectKeysInto(keyCollector, keys);
-            return ImmutableSet.copyOf(keys);
+            return getSupplier().calculateKeys();
+        }
+    }
+
+    private static class NoValueSupplier<K, V> implements MapSupplier<K, V> {
+        private final Value<? extends Map<K, V>> value;
+
+        public NoValueSupplier(Value<? extends Map<K, V>> value) {
+            this.value = value.asType();
+            assert value.isMissing();
         }
 
-        @Nullable
         @Override
-        public Set<K> getOrNull() {
-            beforeRead();
-            Set<K> keys = new LinkedHashSet<K>();
-            if (!value.maybeCollectKeysInto(keyCollector, keys)) {
-                return null;
+        public boolean isPresent() {
+            return false;
+        }
+
+        @Override
+        public Value<? extends Map<K, V>> calculateValue() {
+            return value;
+        }
+
+        @Override
+        public Value<? extends Set<K>> calculateKeys() {
+            return value.asType();
+        }
+
+        @Override
+        public MapSupplier<K, V> plus(MapCollector<K, V> collector) {
+            // nothing + something = nothing
+            return this;
+        }
+
+        @Override
+        public void visit(List<ProviderInternal<? extends Map<? extends K, ? extends V>>> sources) {
+        }
+
+        @Override
+        public boolean maybeVisitBuildDependencies(TaskDependencyResolveContext context) {
+            return true;
+        }
+
+        @Override
+        public void visitProducerTasks(Action<? super Task> visitor) {
+        }
+
+        @Override
+        public boolean isValueProducedByTask() {
+            return false;
+        }
+    }
+
+    private class EmptySupplier implements MapSupplier<K, V> {
+        @Override
+        public boolean isPresent() {
+            return true;
+        }
+
+        @Override
+        public Value<? extends Map<K, V>> calculateValue() {
+            return Value.of(ImmutableMap.of());
+        }
+
+        @Override
+        public Value<? extends Set<K>> calculateKeys() {
+            return Value.of(ImmutableSet.of());
+        }
+
+        @Override
+        public MapSupplier<K, V> plus(MapCollector<K, V> collector) {
+            // empty + something = something
+            return new CollectingSupplier(collector);
+        }
+
+        @Override
+        public void visit(List<ProviderInternal<? extends Map<? extends K, ? extends V>>> sources) {
+        }
+
+        @Override
+        public boolean maybeVisitBuildDependencies(TaskDependencyResolveContext context) {
+            return true;
+        }
+
+        @Override
+        public void visitProducerTasks(Action<? super Task> visitor) {
+        }
+
+        @Override
+        public boolean isValueProducedByTask() {
+            return false;
+        }
+    }
+
+    private static class FixedSuppler<K, V> implements MapSupplier<K, V> {
+        private final Map<K, V> entries;
+
+        public FixedSuppler(Map<K, V> entries) {
+            this.entries = entries;
+        }
+
+        @Override
+        public boolean isPresent() {
+            return true;
+        }
+
+        @Override
+        public Value<? extends Map<K, V>> calculateValue() {
+            return Value.of(entries);
+        }
+
+        @Override
+        public Value<? extends Set<K>> calculateKeys() {
+            return Value.of(entries.keySet());
+        }
+
+        @Override
+        public MapSupplier<K, V> plus(MapCollector<K, V> collector) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void visit(List<ProviderInternal<? extends Map<? extends K, ? extends V>>> sources) {
+            sources.add(Providers.of(entries));
+        }
+
+        @Override
+        public boolean isValueProducedByTask() {
+            return false;
+        }
+
+        @Override
+        public void visitProducerTasks(Action<? super Task> visitor) {
+        }
+
+        @Override
+        public boolean maybeVisitBuildDependencies(TaskDependencyResolveContext context) {
+            return true;
+        }
+    }
+
+    private class CollectingSupplier implements MapSupplier<K, V> {
+        private final MapCollector<K, V> collector;
+
+        public CollectingSupplier(MapCollector<K, V> collector) {
+            this.collector = collector;
+        }
+
+        @Override
+        public boolean isPresent() {
+            return collector.isPresent();
+        }
+
+        @Override
+        public Value<? extends Set<K>> calculateKeys() {
+            // TODO - don't make a copy when the collector already produces an immutable collection
+            ImmutableSet.Builder<K> builder = ImmutableSet.builder();
+            Value<Void> result = collector.collectKeys(keyCollector, builder);
+            if (result.isMissing()) {
+                return result.asType();
             }
-            return ImmutableSet.copyOf(keys);
+            return Value.of(ImmutableSet.copyOf(builder.build()));
+        }
+
+        @Override
+        public Value<? extends Map<K, V>> calculateValue() {
+            // TODO - don't make a copy when the collector already produces an immutable collection
+            // Cannot use ImmutableMap.Builder here, as it does not allow multiple entries with the same key, however the contract
+            // for MapProperty allows a provider to override the entries of earlier providers and so there can be multiple entries
+            // with the same key
+            Map<K, V> entries = new LinkedHashMap<>();
+            Value<Void> result = collector.collectEntries(entryCollector, entries);
+            if (result.isMissing()) {
+                return result.asType();
+            }
+            return Value.of(ImmutableMap.copyOf(entries));
+        }
+
+        @Override
+        public MapSupplier<K, V> plus(MapCollector<K, V> collector) {
+            return new CollectingSupplier(new PlusCollector<>(this.collector, collector));
+        }
+
+        @Override
+        public void visit(List<ProviderInternal<? extends Map<? extends K, ? extends V>>> sources) {
+            collector.visit(sources);
+        }
+
+        @Override
+        public boolean isValueProducedByTask() {
+            return collector.isValueProducedByTask();
+        }
+
+        @Override
+        public boolean maybeVisitBuildDependencies(TaskDependencyResolveContext context) {
+            return collector.maybeVisitBuildDependencies(context);
+        }
+
+        @Override
+        public void visitProducerTasks(Action<? super Task> visitor) {
+            collector.visitProducerTasks(visitor);
         }
     }
 
@@ -382,36 +506,26 @@ public class DefaultMapProperty<K, V> extends AbstractProperty<Map<K, V>> implem
         }
 
         @Override
-        public boolean present() {
-            return left.present() && right.present();
+        public boolean isPresent() {
+            return left.isPresent() && right.isPresent();
         }
 
         @Override
-        public void collectInto(MapEntryCollector<K, V> collector, Map<K, V> dest) {
-            left.collectInto(collector, dest);
-            right.collectInto(collector, dest);
-        }
-
-        @Override
-        public boolean maybeCollectInto(MapEntryCollector<K, V> collector, Map<K, V> dest) {
-            if (left.maybeCollectInto(collector, dest)) {
-                return right.maybeCollectInto(collector, dest);
+        public Value<Void> collectEntries(MapEntryCollector<K, V> collector, Map<K, V> dest) {
+            Value<Void> result = left.collectEntries(collector, dest);
+            if (result.isMissing()) {
+                return result;
             }
-            return false;
+            return right.collectEntries(collector, dest);
         }
 
         @Override
-        public void collectKeysInto(ValueCollector<K> collector, Collection<K> dest) {
-            left.collectKeysInto(collector, dest);
-            right.collectKeysInto(collector, dest);
-        }
-
-        @Override
-        public boolean maybeCollectKeysInto(ValueCollector<K> collector, Collection<K> dest) {
-            if (left.maybeCollectKeysInto(collector, dest)) {
-                return right.maybeCollectKeysInto(collector, dest);
+        public Value<Void> collectKeys(ValueCollector<K> collector, ImmutableCollection.Builder<K> dest) {
+            Value<Void> result = left.collectKeys(collector, dest);
+            if (result.isMissing()) {
+                return result;
             }
-            return false;
+            return right.collectKeys(collector, dest);
         }
 
         @Override
@@ -429,13 +543,14 @@ public class DefaultMapProperty<K, V> extends AbstractProperty<Map<K, V>> implem
         }
 
         @Override
-        public boolean isContentProducedByTask() {
-            return left.isContentProducedByTask() || right.isContentProducedByTask();
+        public void visitProducerTasks(Action<? super Task> visitor) {
+            left.visitProducerTasks(visitor);
+            right.visitProducerTasks(visitor);
         }
 
         @Override
         public boolean isValueProducedByTask() {
-            return left.isValueProducedByTask() || right.isContentProducedByTask();
+            return left.isValueProducedByTask() || right.isValueProducedByTask();
         }
     }
 }

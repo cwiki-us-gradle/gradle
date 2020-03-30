@@ -16,7 +16,9 @@
 
 package org.gradle.java.fixtures
 
+
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.resolve.ResolveTestFixture
 import org.gradle.test.fixtures.GradleModuleMetadata
 import org.gradle.test.fixtures.file.TestFile
@@ -25,6 +27,7 @@ import spock.lang.Unroll
 
 abstract class AbstractJavaTestFixturesIntegrationTest extends AbstractIntegrationSpec {
     abstract String getPluginName()
+
     abstract List getSkippedJars(boolean compileClasspathPackaging)
 
     def setup() {
@@ -56,7 +59,10 @@ abstract class AbstractJavaTestFixturesIntegrationTest extends AbstractIntegrati
         toggleCompileClasspathPackaging(compileClasspathPackaging)
         buildFile << """
             apply plugin: 'java-test-fixtures'
+
+            version = '1.0'
         """
+        dumpCompileAndRuntimeTestClasspath()
         addPersonDomainClass()
         addPersonTestFixture()
         addPersonTestUsingTestFixtures()
@@ -74,6 +80,14 @@ abstract class AbstractJavaTestFixturesIntegrationTest extends AbstractIntegrati
             *producedJars
         )
         notExecuted(*skippedJars)
+        outputContains """Test compile classpath
+---
+${compileClasspathPackaging ? 'libs/root-1.0-test-fixtures.jar' : 'classes/java/testFixtures'}
+${pluginName == 'java' || compileClasspathPackaging ? 'libs/root-1.0.jar' : 'classes/java/main'}
+junit-4.12.jar
+hamcrest-core-1.3.jar
+---
+"""
 
         when:
         succeeds "test"
@@ -81,7 +95,16 @@ abstract class AbstractJavaTestFixturesIntegrationTest extends AbstractIntegrati
         then:
         def expectedJars = [':jar', ':testFixturesJar'] - producedJars
         executedAndNotSkipped(*expectedJars)
-
+        outputContains """Test runtime classpath
+---
+classes/java/test
+resources/test
+libs/root-1.0-test-fixtures.jar
+libs/root-1.0.jar
+junit-4.12.jar
+hamcrest-core-1.3.jar
+---
+"""
         where:
         compileClasspathPackaging | _
         false                     | _
@@ -234,6 +257,7 @@ abstract class AbstractJavaTestFixturesIntegrationTest extends AbstractIntegrati
         )
     }
 
+    @ToBeFixedForInstantExecution
     def "can publish test fixtures"() {
         buildFile << """
             apply plugin: 'maven-publish'
@@ -273,7 +297,6 @@ abstract class AbstractJavaTestFixturesIntegrationTest extends AbstractIntegrati
         MavenPom pom = new MavenPom(file("build/repo/com/acme/root/1.3/root-1.3.pom"))
         pom.scope("compile") {
             assertOptionalDependencies(
-                "com.acme:root:1.3",
                 "org.apache.commons:commons-lang3:3.9"
             )
         }
@@ -291,6 +314,57 @@ abstract class AbstractJavaTestFixturesIntegrationTest extends AbstractIntegrati
         }
     }
 
+    @ToBeFixedForInstantExecution
+    def "can deactivate test fixture publishing"() {
+        buildFile << """
+            apply plugin: 'maven-publish'
+            apply plugin: 'java-test-fixtures'
+
+            dependencies {
+                testFixturesImplementation 'org.apache.commons:commons-lang3:3.9'
+            }
+
+            components.java.withVariantsFromConfiguration(configurations.testFixturesApiElements) { skip() }
+            components.java.withVariantsFromConfiguration(configurations.testFixturesRuntimeElements) { skip() }
+
+            publishing {
+                repositories {
+                    maven {
+                        url "\${buildDir}/repo"
+                    }
+                    publications {
+                        maven(MavenPublication) {
+                            from components.java
+                        }
+                    }
+                }
+            }
+
+            group = 'com.acme'
+            version = '1.3'
+        """
+        addPersonDomainClass()
+        addPersonTestFixtureUsingApacheCommons()
+        addPersonTestUsingTestFixtures()
+
+        when:
+        succeeds 'publish'
+
+        then: "a test fixtures jar is not published"
+        !file("build/repo/com/acme/root/1.3/root-1.3-test-fixtures.jar").exists()
+
+        and: "doe not appear as optional dependency in Maven POM"
+        MavenPom pom = new MavenPom(file("build/repo/com/acme/root/1.3/root-1.3.pom"))
+        pom.scopes.isEmpty()
+
+        and: "does not appear as a variant in Gradle Module metadata"
+        GradleModuleMetadata gmm = new GradleModuleMetadata(file("build/repo/com/acme/root/1.3/root-1.3.module"))
+        !gmm.variants.any { it.name == "testFixturesApiElements" }
+        !gmm.variants.any { it.name == "testFixturesRuntimeElements" }
+        gmm.variants.size() == 2
+    }
+
+    @ToBeFixedForInstantExecution
     def "can consume test fixtures of an external module"() {
         mavenRepo.module("com.acme", "external-module", "1.3")
             .variant("testFixturesApiElements", ['org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar']) {
@@ -334,10 +408,10 @@ abstract class AbstractJavaTestFixturesIntegrationTest extends AbstractIntegrati
                     ])
                     firstLevelConfigurations = ['testFixturesApiElements']
                     module('com.acme:external-module:1.3') {
-                        variant("api", ['org.gradle.status': 'release', 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar'])
-                        artifact(name: 'external-module', version:'1.3')
+                        variant("api", ['org.gradle.status': 'release', 'org.gradle.usage': 'java-api', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library'])
+                        artifact(name: 'external-module', version: '1.3')
                     }
-                    artifact(name: 'external-module', version:'1.3', classifier:'test-fixtures')
+                    artifact(name: 'external-module', version: '1.3', classifier: 'test-fixtures')
                 }
             }
         }
@@ -360,13 +434,13 @@ abstract class AbstractJavaTestFixturesIntegrationTest extends AbstractIntegrati
                     ])
                     firstLevelConfigurations = ['testFixturesRuntimeElements']
                     module('com.acme:external-module:1.3') {
-                        variant("runtime", ['org.gradle.status': 'release', 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar'])
-                        artifact(name: 'external-module', version:'1.3')
+                        variant("runtime", ['org.gradle.status': 'release', 'org.gradle.usage': 'java-runtime', 'org.gradle.libraryelements': 'jar', 'org.gradle.category': 'library'])
+                        artifact(name: 'external-module', version: '1.3')
                     }
                     module("org.apache.commons:commons-lang3:3.9") {
                         configuration = 'runtime' // external POM
                     }
-                    artifact(name: 'external-module', version:'1.3', classifier:'test-fixtures')
+                    artifact(name: 'external-module', version: '1.3', classifier: 'test-fixtures')
                 }
             }
         }
@@ -414,7 +488,7 @@ abstract class AbstractJavaTestFixturesIntegrationTest extends AbstractIntegrati
         """
     }
 
-    protected TestFile addPersonTestFixture(String subproject = "", String lang="java") {
+    protected TestFile addPersonTestFixture(String subproject = "", String lang = "java") {
         file("${subproject ? "${subproject}/" : ""}src/testFixtures/$lang/org/PersonFixture.$lang") << """
             package org;
             
@@ -439,4 +513,33 @@ abstract class AbstractJavaTestFixturesIntegrationTest extends AbstractIntegrati
         """
     }
 
+    protected void dumpCompileAndRuntimeTestClasspath() {
+        buildFile << """
+            void printClasspathFile(File it) {
+                if (it.absolutePath.contains('intTestHomeDir')) {
+                    println it.name
+                } else {
+                    println it.absolutePath.substring(it.absolutePath.lastIndexOf('build') + 6).replace(File.separatorChar, (char) '/')
+                }
+            }
+
+            compileTestJava {
+               doFirst {
+                   println "Test compile classpath"
+                   println "---"
+                   classpath.each { printClasspathFile(it) }
+                   println "---"
+               }
+            }
+            
+            test {
+               doFirst {
+                  println "Test runtime classpath"
+                  println "---"
+                  classpath.each { printClasspathFile(it) }
+                  println "---"
+               }
+            }
+"""
+    }
 }

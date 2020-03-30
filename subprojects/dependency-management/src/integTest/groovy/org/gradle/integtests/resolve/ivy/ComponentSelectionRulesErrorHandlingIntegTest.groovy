@@ -16,6 +16,7 @@
 
 package org.gradle.integtests.resolve.ivy
 
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.test.fixtures.ivy.IvyModule
 import org.gradle.test.fixtures.maven.MavenModule
 
@@ -220,6 +221,7 @@ class ComponentSelectionRulesErrorHandlingIntegTest extends AbstractComponentSel
         failure.assertHasCause("java.lang.Exception: thrown from rule")
     }
 
+    @ToBeFixedForInstantExecution
     def "reports missing module when component selection rule requires meta-data"() {
         buildFile << """
 configurations {
@@ -271,6 +273,7 @@ Required by:
         succeeds ":checkDeps"
     }
 
+    @ToBeFixedForInstantExecution
     def "reports broken module when component selection rule requires meta-data"() {
         buildFile << """
 configurations {
@@ -321,12 +324,7 @@ dependencies {
 
         then:
         fails ":checkDeps"
-        if (gradleMetadataPublished) {
-            // why is the error message different?!
-            failure.assertHasCause("Could not download api-2.1.jar (org.utils:api:2.1)")
-        } else {
-            failure.assertHasCause("Could not download api.jar (org.utils:api:2.1)")
-        }
+        failure.assertHasCause("Could not download api-2.1.jar (org.utils:api:2.1)")
         failure.assertHasCause("Could not GET '${artifactURI('org.utils', 'api', '2.1')}'. Received status code 500 from server: broken")
 
         when:

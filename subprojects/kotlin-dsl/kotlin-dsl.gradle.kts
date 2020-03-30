@@ -14,11 +14,14 @@
  * limitations under the License.
  */
 
-import org.gradle.gradlebuild.unittestandcompile.ModuleType
 import build.futureKotlin
 import build.kotlin
 import build.kotlinVersion
 import codegen.GenerateKotlinDependencyExtensions
+import org.gradle.build.ReproduciblePropertiesWriter
+import org.gradle.gradlebuild.unittestandcompile.ModuleType
+import org.gradle.gradlebuild.testing.integrationtests.cleanup.WhenNotEmpty
+
 
 plugins {
     `kotlin-dsl-module`
@@ -55,6 +58,15 @@ dependencies {
     implementation(library("guava"))
     implementation(library("inject"))
 
+    implementation(futureKotlin("scripting-common")) {
+        isTransitive = false
+    }
+    implementation(futureKotlin("scripting-jvm")) {
+        isTransitive = false
+    }
+    implementation(futureKotlin("scripting-jvm-host-embeddable")) {
+        isTransitive = false
+    }
     implementation(futureKotlin("scripting-compiler-embeddable")) {
         isTransitive = false
     }
@@ -81,7 +93,7 @@ dependencies {
     testImplementation(testLibrary("jackson_kotlin"))
 
     testImplementation(testLibrary("archunit"))
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.0.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.3")
     testImplementation("org.awaitility:awaitility-kotlin:3.1.6")
 
     testRuntimeOnly(project(":runtimeApiInfo"))
@@ -101,15 +113,9 @@ dependencies {
 // --- Enable automatic generation of API extensions -------------------
 val apiExtensionsOutputDir = layout.buildDirectory.dir("generated-sources/kotlin")
 
-val publishedKotlinDslPluginVersion = "1.2.9" // TODO:kotlin-dsl
+val publishedKotlinDslPluginVersion = "1.3.5" // TODO:kotlin-dsl
 
 tasks {
-
-    // TODO:kotlin-dsl
-    verifyTestFilesCleanup {
-        enabled = false
-    }
-
     val generateKotlinDependencyExtensions by registering(GenerateKotlinDependencyExtensions::class) {
         outputDir.set(apiExtensionsOutputDir)
         embeddedKotlinVersion.set(kotlinVersion)
@@ -133,4 +139,45 @@ tasks {
     processResources {
         from(writeVersionsManifest)
     }
+}
+
+testFilesCleanup {
+    policy.set(WhenNotEmpty.REPORT)
+}
+
+
+// -- Embedded Kotlin dependencies -------------------------------------
+
+val embeddedKotlinBaseDependencies by configurations.creating
+
+dependencies {
+    embeddedKotlinBaseDependencies(futureKotlin("stdlib-jdk8"))
+    embeddedKotlinBaseDependencies(futureKotlin("reflect"))
+}
+
+val writeEmbeddedKotlinDependencies by tasks.registering {
+    val outputFile = layout.buildDirectory.file("embeddedKotlinDependencies/gradle-kotlin-dsl-embedded-kotlin.properties")
+    outputs.file(outputFile)
+    val values = embeddedKotlinBaseDependencies
+    inputs.files(values)
+    val skippedModules = setOf(project.name, "distributionsDependencies", "kotlinCompilerEmbeddable")
+    // https://github.com/gradle/instant-execution/issues/183
+    val modules = provider { embeddedKotlinBaseDependencies.incoming.resolutionResult.allComponents
+        .asSequence()
+        .mapNotNull { it.moduleVersion }
+        .filter { it.name !in skippedModules }
+        .associate { "${it.group}:${it.name}" to it.version }
+    }
+
+    doLast {
+        ReproduciblePropertiesWriter.store(
+            modules.get(),
+            outputFile.get().asFile.apply { parentFile.mkdirs() },
+            null
+        )
+    }
+}
+
+tasks.processResources {
+    from(writeEmbeddedKotlinDependencies)
 }

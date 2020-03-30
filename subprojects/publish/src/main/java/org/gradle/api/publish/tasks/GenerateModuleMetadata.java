@@ -29,6 +29,7 @@ import org.gradle.api.internal.component.SoftwareComponentInternal;
 import org.gradle.api.internal.component.UsageContext;
 import org.gradle.api.internal.file.FileCollectionFactory;
 import org.gradle.api.internal.file.collections.MinimalFileSet;
+import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.internal.tasks.DefaultTaskDependency;
 import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.ListProperty;
@@ -36,7 +37,6 @@ import org.gradle.api.provider.Property;
 import org.gradle.api.publish.Publication;
 import org.gradle.api.publish.internal.GradleModuleMetadataWriter;
 import org.gradle.api.publish.internal.PublicationInternal;
-import org.gradle.api.specs.Spec;
 import org.gradle.api.specs.Specs;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
@@ -46,6 +46,7 @@ import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.TaskDependency;
 import org.gradle.internal.Cast;
+import org.gradle.internal.hash.ChecksumService;
 import org.gradle.internal.scopeids.id.BuildInvocationScopeId;
 
 import javax.inject.Inject;
@@ -68,6 +69,7 @@ public class GenerateModuleMetadata extends DefaultTask {
     private final Property<Publication> publication;
     private final ListProperty<Publication> publications;
     private final RegularFileProperty outputFile;
+    private final ChecksumService checksumService;
 
     public GenerateModuleMetadata() {
         ObjectFactory objectFactory = getProject().getObjects();
@@ -77,19 +79,18 @@ public class GenerateModuleMetadata extends DefaultTask {
         // TODO - should be incremental
         getOutputs().upToDateWhen(Specs.<Task>satisfyNone());
         mustHaveAttachedComponent();
+        // injected here in order to avoid exposing in public API
+        checksumService = ((ProjectInternal)getProject()).getServices().get(ChecksumService.class);
     }
 
     private void mustHaveAttachedComponent() {
-        setOnlyIf(new Spec<Task>() {
-            @Override
-            public boolean isSatisfiedBy(Task element) {
-                PublicationInternal publication = (PublicationInternal) GenerateModuleMetadata.this.publication.get();
-                if (publication.getComponent() == null) {
-                    getLogger().warn(publication.getDisplayName() + " isn't attached to a component. Gradle metadata only supports publications with software components (e.g. from component.java)");
-                    return false;
-                }
-                return true;
+        setOnlyIf(element -> {
+            PublicationInternal publication = (PublicationInternal) GenerateModuleMetadata.this.publication.get();
+            if (publication.getComponent() == null) {
+                getLogger().warn(publication.getDisplayName() + " isn't attached to a component. Gradle metadata only supports publications with software components (e.g. from component.java)");
+                return false;
             }
+            return true;
         });
     }
 
@@ -165,7 +166,7 @@ public class GenerateModuleMetadata extends DefaultTask {
         try {
             Writer writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), "utf8"));
             try {
-                new GradleModuleMetadataWriter(getBuildInvocationScopeId(), getProjectDependencyPublicationResolver()).generateTo(publication, publications, writer);
+                new GradleModuleMetadataWriter(getBuildInvocationScopeId(), getProjectDependencyPublicationResolver(), checksumService).generateTo(publication, publications, writer);
             } finally {
                 writer.close();
             }

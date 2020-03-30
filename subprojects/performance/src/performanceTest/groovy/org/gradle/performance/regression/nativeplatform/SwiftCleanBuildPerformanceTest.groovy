@@ -18,16 +18,16 @@ package org.gradle.performance.regression.nativeplatform
 
 import org.gradle.initialization.ParallelismBuildOptions
 import org.gradle.performance.AbstractCrossVersionGradleProfilerPerformanceTest
-import org.gradle.performance.categories.PerformanceExperiment
+import org.gradle.performance.categories.SlowPerformanceRegressionTest
 import org.junit.experimental.categories.Category
 import spock.lang.Unroll
 
-@Category(PerformanceExperiment)
+@Category(SlowPerformanceRegressionTest)
 class SwiftCleanBuildPerformanceTest extends AbstractCrossVersionGradleProfilerPerformanceTest {
 
     def setup() {
-        runner.minimumVersion = '4.6'
-        runner.targetVersions = ["5.7-20190722220035+0000"]
+        runner.minimumBaseVersion = '4.6'
+        runner.targetVersions = ["6.2-20200108160029+0000"]
         runner.args += ["--parallel", "--${ParallelismBuildOptions.MaxWorkersOption.LONG_OPTION}=6"]
     }
 

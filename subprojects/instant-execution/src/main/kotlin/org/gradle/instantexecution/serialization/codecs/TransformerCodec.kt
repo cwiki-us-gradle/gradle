@@ -25,58 +25,71 @@ import org.gradle.api.internal.artifacts.transform.DefaultTransformer
 import org.gradle.api.internal.artifacts.transform.LegacyTransformer
 import org.gradle.api.internal.attributes.ImmutableAttributes
 import org.gradle.api.internal.file.FileCollectionFactory
+import org.gradle.api.internal.file.FileLookup
 import org.gradle.instantexecution.serialization.Codec
 import org.gradle.instantexecution.serialization.ReadContext
 import org.gradle.instantexecution.serialization.WriteContext
+import org.gradle.instantexecution.serialization.readNonNull
+import org.gradle.instantexecution.serialization.withCodec
 import org.gradle.internal.fingerprint.AbsolutePathInputNormalizer
-import org.gradle.internal.fingerprint.FileCollectionFingerprinterRegistry
 import org.gradle.internal.hash.ClassLoaderHierarchyHasher
 import org.gradle.internal.hash.HashCode
 import org.gradle.internal.isolation.Isolatable
 import org.gradle.internal.isolation.IsolatableFactory
 import org.gradle.internal.operations.BuildOperationExecutor
+import org.gradle.internal.service.ServiceRegistry
 import org.gradle.internal.snapshot.ValueSnapshotter
-import org.gradle.workers.internal.IsolatableSerializerRegistry
+import org.gradle.internal.snapshot.impl.IsolatedArray
 
 
 internal
 class DefaultTransformerCodec(
+    private val userTypesCodec: Codec<Any?>,
     private val buildOperationExecutor: BuildOperationExecutor,
     private val classLoaderHierarchyHasher: ClassLoaderHierarchyHasher,
     private val isolatableFactory: IsolatableFactory,
     private val valueSnapshotter: ValueSnapshotter,
     private val fileCollectionFactory: FileCollectionFactory,
-    private val fileCollectionFingerprinterRegistry: FileCollectionFingerprinterRegistry,
-    private val isolatableSerializerRegistry: IsolatableSerializerRegistry,
+    private val fileLookup: FileLookup,
     private val parameterScheme: ArtifactTransformParameterScheme,
     private val actionScheme: ArtifactTransformActionScheme
 ) : Codec<DefaultTransformer> {
     override suspend fun WriteContext.encode(value: DefaultTransformer) {
         writeClass(value.implementationClass)
 
-        // Write isolated parameters
-        value.isolateParameters(fileCollectionFingerprinterRegistry)
-        writeBinary(value.isolatedParameters.secondaryInputsHash.toByteArray())
-        isolatableSerializerRegistry.writeIsolatable(this, value.isolatedParameters.isolatedParameterObject)
+        // TODO - isolate now and discard node, if isolation is scheduled and has no dependencies
+        // Write isolated parameters, if available, and discard the parameters
+        if (value.isIsolated) {
+            writeBoolean(true)
+            writeBinary(value.isolatedParameters.secondaryInputsHash.toByteArray())
+            write(value.isolatedParameters.isolatedParameterObject)
+        } else {
+            writeBoolean(false)
+            withCodec(userTypesCodec) { write(value.parameterObject) }
+        }
 
         // TODO - write more state
     }
 
     override suspend fun ReadContext.decode(): DefaultTransformer? {
         val implementationClass = readClass().asSubclass(TransformAction::class.java)
-        val secondaryInputsHash = HashCode.fromBytes(readBinary())
-        // TODO - should not need to do anything with the context classloader
-        val previousContextClassLoader = Thread.currentThread().contextClassLoader
-        Thread.currentThread().contextClassLoader = classLoader
-        val isolatedParameters = try {
-            isolatableSerializerRegistry.readIsolatable(this) as Isolatable<out TransformParameters>
-        } finally {
-            Thread.currentThread().contextClassLoader = previousContextClassLoader
+
+        val isolated = readBoolean()
+        val parametersObject: TransformParameters?
+        val isolatedParametersObject: DefaultTransformer.IsolatedParameters?
+        if (isolated) {
+            parametersObject = null
+            val secondaryInputsHash = HashCode.fromBytes(readBinary())
+            val isolatedParameters = readNonNull<Isolatable<TransformParameters>>()
+            isolatedParametersObject = DefaultTransformer.IsolatedParameters(isolatedParameters, secondaryInputsHash)
+        } else {
+            parametersObject = withCodec(userTypesCodec) { read() as TransformParameters? }
+            isolatedParametersObject = null
         }
         return DefaultTransformer(
             implementationClass,
-            null,
-            DefaultTransformer.IsolatedParameters(isolatedParameters, secondaryInputsHash),
+            parametersObject,
+            isolatedParametersObject,
             ImmutableAttributes.EMPTY,
             AbsolutePathInputNormalizer::class.java,
             AbsolutePathInputNormalizer::class.java,
@@ -86,8 +99,10 @@ class DefaultTransformerCodec(
             isolatableFactory,
             valueSnapshotter,
             fileCollectionFactory,
+            fileLookup,
             parameterScheme.inspectionScheme.propertyWalker,
-            actionScheme.instantiationScheme
+            actionScheme.instantiationScheme,
+            isolate.owner.service(ServiceRegistry::class.java)
         )
     }
 }
@@ -95,24 +110,23 @@ class DefaultTransformerCodec(
 
 internal
 class LegacyTransformerCodec(
-    private val classLoaderHierarchyHasher: ClassLoaderHierarchyHasher,
-    private val isolatableFactory: IsolatableFactory,
     private val actionScheme: ArtifactTransformActionScheme
 ) : Codec<LegacyTransformer> {
     override suspend fun WriteContext.encode(value: LegacyTransformer) {
         writeClass(value.implementationClass)
-        // TODO - write more state
+        writeBinary(value.secondaryInputsHash.toByteArray())
+        // TODO - write more state, eg parameters
     }
 
     override suspend fun ReadContext.decode(): LegacyTransformer? {
         val implementationClass = readClass().asSubclass(ArtifactTransform::class.java)
+        val secondaryInputsHash = HashCode.fromBytes(readBinary())
         return LegacyTransformer(
             implementationClass,
-            arrayOf(),
+            IsolatedArray.EMPTY,
+            secondaryInputsHash,
             actionScheme.instantiationScheme,
-            ImmutableAttributes.EMPTY,
-            classLoaderHierarchyHasher,
-            isolatableFactory
+            ImmutableAttributes.EMPTY
         )
     }
 }

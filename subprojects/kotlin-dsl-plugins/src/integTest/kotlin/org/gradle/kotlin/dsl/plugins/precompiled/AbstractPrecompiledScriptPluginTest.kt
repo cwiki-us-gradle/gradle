@@ -16,24 +16,35 @@
 
 package org.gradle.kotlin.dsl.plugins.precompiled
 
+import org.gradle.integtests.fixtures.ToBeFixedForVfsRetention
 import org.gradle.kotlin.dsl.fixtures.AbstractPluginTest
 import org.gradle.kotlin.dsl.fixtures.classLoaderFor
+import org.gradle.util.TestPrecondition
 
 import org.junit.Before
 
 
+@ToBeFixedForVfsRetention(
+    because = "https://github.com/gradle/gradle/issues/12184",
+    failsOnlyIf = TestPrecondition.WINDOWS
+)
 open class AbstractPrecompiledScriptPluginTest : AbstractPluginTest() {
 
     @Before
     fun setupPluginTest() {
         requireGradleDistributionOnEmbeddedExecuter()
+        executer.beforeExecute {
+            // Ignore stacktraces when the Kotlin daemon fails
+            // See https://github.com/gradle/gradle-private/issues/2936
+            it.withStackTraceChecksDisabled()
+        }
     }
 
     protected
     inline fun <reified T> instantiatePrecompiledScriptOf(target: T, className: String): Any =
         loadCompiledKotlinClass(className)
-            .getConstructor(T::class.java)
-            .newInstance(target)
+            .getConstructor(T::class.java, T::class.java)
+            .newInstance(target, target)
 
     protected
     fun loadCompiledKotlinClass(className: String): Class<*> =

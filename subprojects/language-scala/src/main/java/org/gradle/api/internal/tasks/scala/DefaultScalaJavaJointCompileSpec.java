@@ -26,8 +26,10 @@ public class DefaultScalaJavaJointCompileSpec extends DefaultJavaCompileSpec imp
     private BaseScalaCompileOptions options;
     private Iterable<File> scalaClasspath;
     private Iterable<File> zincClasspath;
+    private Iterable<File> scalaCompilerPlugins;
     private Map<File, File> analysisMap;
     private File analysisFile;
+    private long buildStartTimestamp;
 
     @Override
     public BaseScalaCompileOptions getScalaCompileOptions() {
@@ -65,6 +67,16 @@ public class DefaultScalaJavaJointCompileSpec extends DefaultJavaCompileSpec imp
     }
 
     @Override
+    public Iterable<File> getScalaCompilerPlugins() {
+        return scalaCompilerPlugins;
+    }
+
+    @Override
+    public void setScalaCompilerPlugins(Iterable<File> scalaCompilerPlugins) {
+        this.scalaCompilerPlugins = scalaCompilerPlugins;
+    }
+
+    @Override
     public Map<File, File> getAnalysisMap() {
         return analysisMap;
     }
@@ -72,5 +84,14 @@ public class DefaultScalaJavaJointCompileSpec extends DefaultJavaCompileSpec imp
     @Override
     public void setAnalysisMap(Map<File, File> analysisMap) {
         this.analysisMap = analysisMap;
+    }
+
+    @Override
+    public long getBuildStartTimestamp() {
+        return buildStartTimestamp;
+    }
+
+    public void setBuildStartTimestamp(long buildStartTimestamp) {
+        this.buildStartTimestamp = buildStartTimestamp;
     }
 }

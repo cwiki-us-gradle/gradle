@@ -18,6 +18,7 @@ package org.gradle.api.tasks
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.DirectoryBuildCacheFixture
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.test.fixtures.archive.TarTestFixture
 
 class CachedTaskIntegrationTest extends AbstractIntegrationSpec implements DirectoryBuildCacheFixture {
@@ -55,11 +56,12 @@ class CachedTaskIntegrationTest extends AbstractIntegrationSpec implements Direc
     def "task is cacheable after previous failure"() {
         buildFile << """
             task foo {
-                outputs.file("out.txt")
+                def outFile = project.file("out.txt")
+                outputs.file(outFile)
                 outputs.cacheIf { true }
                 doLast {
-                    project.file("out.txt") << "xxx"
-                    if (project.hasProperty("fail")) {
+                    outFile << "xxx"
+                    if (System.getProperty("fail")) {
                         throw new RuntimeException("Boo!")
                     }
                 }
@@ -68,7 +70,7 @@ class CachedTaskIntegrationTest extends AbstractIntegrationSpec implements Direc
 
         expect:
         executer.withStackTraceChecksDisabled()
-        withBuildCache().fails "foo", "-Pfail"
+        withBuildCache().fails "foo", "-Dfail=yes"
 
         when:
         withBuildCache().run "foo"
@@ -81,6 +83,7 @@ class CachedTaskIntegrationTest extends AbstractIntegrationSpec implements Direc
         skipped ":foo"
     }
 
+    @ToBeFixedForInstantExecution
     def "task is loaded from cache when returning to already cached state after failure"() {
         buildFile << """
             task foo {
@@ -110,6 +113,7 @@ class CachedTaskIntegrationTest extends AbstractIntegrationSpec implements Direc
         skipped ":foo"
     }
 
+    @ToBeFixedForInstantExecution(skip = ToBeFixedForInstantExecution.Skip.FLAKY)
     def "displays info about loading and storing in cache"() {
         buildFile << defineCacheableTask()
         when:

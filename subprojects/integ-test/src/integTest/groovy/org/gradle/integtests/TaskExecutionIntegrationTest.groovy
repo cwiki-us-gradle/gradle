@@ -19,6 +19,8 @@ package org.gradle.integtests
 import groovy.transform.NotYetImplemented
 import org.gradle.api.CircularReferenceException
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import spock.lang.Ignore
 import spock.lang.Issue
 import spock.lang.Timeout
 import spock.lang.Unroll
@@ -63,6 +65,7 @@ class TaskExecutionIntegrationTest extends AbstractIntegrationSpec {
         result.assertTasksExecuted(":b", ":a")
     }
 
+    @ToBeFixedForInstantExecution(because = "Task.getProject() during execution")
     def executesAllTasksInASingleBuildAndEachTaskAtMostOnce() {
         buildFile << """
     gradle.taskGraph.whenReady { assert !project.hasProperty('graphReady'); ext.graphReady = true }
@@ -132,6 +135,7 @@ class TaskExecutionIntegrationTest extends AbstractIntegrationSpec {
         executer.withArguments("-m").withTasks("b").run().normalizedOutput.contains(":a SKIPPED\n:b SKIPPED")
     }
 
+    @ToBeFixedForInstantExecution
     def executesTaskActionsInCorrectEnvironment() {
         buildFile << """
     // An action attached to built-in task
@@ -724,5 +728,22 @@ task someTask(dependsOn: [someDep, someOtherDep])
 
         expect:
         succeeds "custom", "--rerun-tasks"
+    }
+
+    @Ignore
+    @Issue("https://github.com/gradle/gradle/issues/2293")
+    def "detects a cycle with a task that mustRunAfter itself as finalizer of another task"() {
+        buildFile << """
+            def finalizer = tasks.register("finalizer")
+            tasks.named("finalizer").configure { 
+                mustRunAfter(finalizer) 
+            }
+            task myTask {
+                finalizedBy finalizer
+            }
+        """
+        expect:
+        // This should fail with a cycle and not as a misdetected cycle.
+        succeeds("myTask")
     }
 }

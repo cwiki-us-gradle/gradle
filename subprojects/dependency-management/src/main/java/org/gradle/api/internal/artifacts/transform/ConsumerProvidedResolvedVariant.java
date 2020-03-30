@@ -19,15 +19,21 @@ package org.gradle.api.internal.artifacts.transform;
 import com.google.common.collect.Maps;
 import org.gradle.api.artifacts.component.ComponentArtifactIdentifier;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ResolvedArtifactSet;
 import org.gradle.api.internal.attributes.AttributeContainerInternal;
+import org.gradle.api.internal.attributes.ImmutableAttributes;
 import org.gradle.api.internal.file.FileCollectionStructureVisitor;
 import org.gradle.api.internal.tasks.TaskDependencyResolveContext;
+import org.gradle.internal.Describables;
+import org.gradle.internal.DisplayName;
 import org.gradle.internal.operations.BuildOperationQueue;
 import org.gradle.internal.operations.RunnableBuildOperation;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Transformed artifact set that performs the transformation itself when requested.
@@ -57,8 +63,18 @@ public class ConsumerProvidedResolvedVariant implements ResolvedArtifactSet, Con
     }
 
     @Override
+    public ImmutableAttributes getTargetVariantAttributes() {
+        return attributes.asImmutable();
+    }
+
+    @Override
+    public DisplayName getTargetVariantName() {
+        return Describables.of(componentIdentifier, attributes);
+    }
+
+    @Override
     public String toString() {
-        return componentIdentifier + " " + attributes;
+        return getTargetVariantName().getCapitalizedDisplayName();
     }
 
     @Override
@@ -87,7 +103,18 @@ public class ConsumerProvidedResolvedVariant implements ResolvedArtifactSet, Con
 
     @Override
     public Collection<TransformationNode> getScheduledNodes() {
-        return transformationNodeRegistry.getOrCreate(delegate, transformation, getDependenciesResolver());
+        // Only care about transformed project outputs. For everything else, calculate the value eagerly
+        AtomicReference<Boolean> hasProjectArtifacts = new AtomicReference<>(false);
+        delegate.visitLocalArtifacts(artifact -> {
+            if (artifact.getId().getComponentIdentifier() instanceof ProjectComponentIdentifier) {
+                hasProjectArtifacts.set(true);
+            }
+        });
+        if (hasProjectArtifacts.get()) {
+            return transformationNodeRegistry.getOrCreate(delegate, transformation, getDependenciesResolver());
+        } else {
+            return Collections.emptySet();
+        }
     }
 
     private ExecutionGraphDependenciesResolver getDependenciesResolver() {

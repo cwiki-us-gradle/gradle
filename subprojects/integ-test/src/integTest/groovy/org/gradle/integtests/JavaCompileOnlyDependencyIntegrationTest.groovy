@@ -17,6 +17,7 @@
 package org.gradle.integtests
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 
 import static org.gradle.util.TextUtil.normaliseFileSeparators
 
@@ -165,6 +166,7 @@ task checkCompileClasspath{
         succeeds('checkImplementation', 'checkCompileOnly', 'checkCompileClasspath')
     }
 
+    @ToBeFixedForInstantExecution(because = "Task.getProject() during execution")
     def "compile only dependencies from project dependency are non transitive"() {
         given:
         mavenRepo.module('org.gradle.test', 'compileOnly', '1.0').publish()
@@ -204,6 +206,7 @@ project(':projectB') {
         succeeds('checkClasspath')
     }
 
+    @ToBeFixedForInstantExecution(because = "Task.getProject() during execution")
     def "correct configurations for compile only project dependency"() {
         given:
         settingsFile << "include 'projectA', 'projectB'"
@@ -237,7 +240,7 @@ project(':projectB') {
                     doLast {
                         assert configurations.compileClasspath.files == [project(':projectA').compileJava.destinationDir] as Set
                         assert configurations.runtimeClasspath.files == [] as Set
-                        assert configurations.compileOnlyClasspath.files == [project(':projectA').jar.archivePath] as Set
+                        assert configurations.compileOnlyClasspath.files == [project(':projectA').jar.archiveFile.get().asFile] as Set
                         assert configurations.implementationClasspath.files == [] as Set
                     }
                 }

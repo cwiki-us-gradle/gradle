@@ -18,6 +18,7 @@ package org.gradle.java
 
 import org.gradle.api.JavaVersion
 import org.gradle.integtests.fixtures.AvailableJavaHomes
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.MultiVersionIntegrationSpec
 import org.gradle.integtests.fixtures.TargetVersions
 import org.gradle.internal.FileUtils
@@ -55,6 +56,7 @@ tasks.withType(JavaCompile) {
 }
 tasks.withType(Javadoc) {
     executable = "$javadoc"
+    options.noTimestamp = false
 }
 tasks.withType(Test) {
     executable = "$java"
@@ -116,6 +118,7 @@ public class ThingTest {
         succeeds 'test'
     }
 
+    @ToBeFixedForInstantExecution
     def "can build and run application using target Java version"() {
         given:
         buildFile << """

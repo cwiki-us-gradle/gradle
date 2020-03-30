@@ -23,7 +23,7 @@ import org.gradle.api.file.FileCollection
 import org.gradle.api.file.SourceDirectorySet
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
-import org.gradle.api.tasks.CompileClasspath
+import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
@@ -31,22 +31,29 @@ import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 
-import org.gradle.kotlin.dsl.execution.scriptDefinitionFromTemplate
-
 import org.gradle.kotlin.dsl.provider.plugins.precompiled.HashedClassPath
 
-import org.gradle.kotlin.dsl.support.KotlinPluginsBlock
+import org.gradle.kotlin.dsl.support.CompiledKotlinPluginsBlock
+import org.gradle.kotlin.dsl.support.ImplicitImports
 import org.gradle.kotlin.dsl.support.compileKotlinScriptModuleTo
+import org.gradle.kotlin.dsl.support.scriptDefinitionFromTemplate
+
+import javax.inject.Inject
 
 
 @CacheableTask
-abstract class CompilePrecompiledScriptPluginPlugins : DefaultTask(), SharedAccessorsPackageAware {
+abstract class CompilePrecompiledScriptPluginPlugins @Inject constructor(
+
+    private
+    val implicitImports: ImplicitImports
+
+) : DefaultTask(), SharedAccessorsPackageAware {
 
     @get:Internal
     internal
     lateinit var hashedClassPath: HashedClassPath
 
-    @get:CompileClasspath
+    @get:Classpath
     val classPathFiles: FileCollection
         get() = hashedClassPath.classPathFiles
 
@@ -74,8 +81,8 @@ abstract class CompilePrecompiledScriptPluginPlugins : DefaultTask(), SharedAcce
                     sourceFiles.name,
                     scriptFiles,
                     scriptDefinitionFromTemplate(
-                        KotlinPluginsBlock::class,
-                        implicitImportsForPrecompiledScriptPlugins()
+                        CompiledKotlinPluginsBlock::class,
+                        implicitImportsForPrecompiledScriptPlugins(implicitImports)
                     ),
                     classPathFiles,
                     logger,

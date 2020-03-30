@@ -17,6 +17,7 @@
 package org.gradle.api.tasks
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import spock.lang.Unroll
 
 @Unroll
@@ -25,12 +26,13 @@ class FailingIncrementalTasksIntegrationTest extends AbstractIntegrationSpec {
     def "consecutively failing task has correct up-to-date status and failure"() {
         buildFile << """
             task foo {
-                outputs.file("out.txt")
+                def outFile = project.file("out.txt")
+                outputs.file(outFile)
                 doLast {
-                    if (project.file("out.txt").exists()) {
+                    if (outFile.exists()) {
                         throw new RuntimeException("Boo!")
                     }
-                    project.file("out.txt") << "xxx"
+                    outFile << "xxx"
                 }
             }
         """
@@ -52,6 +54,7 @@ class FailingIncrementalTasksIntegrationTest extends AbstractIntegrationSpec {
         //this exposes an issue we used to have with in-memory cache.
     }
 
+    @ToBeFixedForInstantExecution
     def "incremental task after previous failure #description"() {
         file("src/input.txt") << "input"
         buildFile << """

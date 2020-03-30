@@ -72,6 +72,7 @@ import org.gradle.api.internal.artifacts.ivyservice.ResolvedArtifactCollectingVi
 import org.gradle.api.internal.artifacts.ivyservice.ResolvedFileCollectionVisitor;
 import org.gradle.api.internal.artifacts.ivyservice.ResolvedFilesCollectingVisitor;
 import org.gradle.api.internal.artifacts.ivyservice.moduleconverter.RootComponentMetadataBuilder;
+import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ArtifactVisitor;
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.SelectedArtifactSet;
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.projectresult.ResolvedProjectConfiguration;
 import org.gradle.api.internal.artifacts.transform.DefaultExtraExecutionGraphDependenciesResolverFactory;
@@ -104,7 +105,9 @@ import org.gradle.internal.Factory;
 import org.gradle.internal.ImmutableActionSet;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.component.model.ComponentResolveMetadata;
+import org.gradle.internal.concurrent.GradleThread;
 import org.gradle.internal.deprecation.DeprecatableConfiguration;
+import org.gradle.internal.deprecation.DeprecationLogger;
 import org.gradle.internal.event.ListenerBroadcast;
 import org.gradle.internal.event.ListenerManager;
 import org.gradle.internal.operations.BuildOperationContext;
@@ -115,7 +118,6 @@ import org.gradle.internal.reflect.Instantiator;
 import org.gradle.internal.typeconversion.NotationParser;
 import org.gradle.util.CollectionUtils;
 import org.gradle.util.ConfigureUtil;
-import org.gradle.util.DeprecationLogger;
 import org.gradle.util.Path;
 import org.gradle.util.WrapUtil;
 
@@ -138,11 +140,8 @@ import static org.gradle.util.ConfigureUtil.configure;
 
 public class DefaultConfiguration extends AbstractFileCollection implements ConfigurationInternal, MutationValidator {
 
-    private static final Action<Throwable> DEFAULT_ERROR_HANDLER = new Action<Throwable>() {
-        @Override
-        public void execute(Throwable throwable) {
-            throw UncheckedException.throwAsUncheckedException(throwable);
-        }
+    private static final Action<Throwable> DEFAULT_ERROR_HANDLER = throwable -> {
+        throw UncheckedException.throwAsUncheckedException(throwable);
     };
 
     private final ConfigurationResolver resolver;
@@ -178,12 +177,7 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
     private final DocumentationRegistry documentationRegistry;
 
     private final Set<MutationValidator> childMutationValidators = Sets.newHashSet();
-    private final MutationValidator parentMutationValidator = new MutationValidator() {
-        @Override
-        public void validateMutation(MutationType type) {
-            DefaultConfiguration.this.validateParentMutation(type);
-        }
-    };
+    private final MutationValidator parentMutationValidator = DefaultConfiguration.this::validateParentMutation;
     private final RootComponentMetadataBuilder rootComponentMetadataBuilder;
     private final ConfigurationsProvider configurationsProvider;
 
@@ -300,12 +294,7 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
     }
 
     private static Action<Void> validateMutationType(final MutationValidator mutationValidator, final MutationType type) {
-        return new Action<Void>() {
-            @Override
-            public void execute(Void arg) {
-                mutationValidator.validateMutation(type);
-            }
-        };
+        return arg -> mutationValidator.validateMutation(type);
     }
 
     @Override
@@ -446,12 +435,9 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
     @Override
     public Configuration defaultDependencies(final Action<? super DependencySet> action) {
         validateMutation(MutationType.DEPENDENCIES);
-        defaultDependencyActions = defaultDependencyActions.add(new Action<DependencySet>() {
-            @Override
-            public void execute(DependencySet dependencies) {
-                if (dependencies.isEmpty()) {
-                    action.execute(dependencies);
-                }
+        defaultDependencyActions = defaultDependencyActions.add(dependencies -> {
+            if (dependencies.isEmpty()) {
+                action.execute(dependencies);
             }
         });
         return this;
@@ -499,8 +485,8 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
     }
 
     @Override
-    public void visitStructure(FileCollectionStructureVisitor visitor) {
-        intrinsicFiles.visitStructure(visitor);
+    protected void visitContents(FileCollectionStructureVisitor visitor) {
+        intrinsicFiles.visitContents(visitor);
     }
 
     @Override
@@ -574,10 +560,18 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
         warnIfConfigurationIsDeprecatedForResolving();
 
         if (!owner.getModel().hasMutableState()) {
-            // We don't have mutable access to the project, so we throw a deprecation warning and then continue with
-            // lenient locking to prevent deadlocks in user-managed threads.
-            DeprecationLogger.nagUserOfDeprecatedBehaviour("The configuration " + identityPath.toString() + " was resolved without accessing the project in a safe manner.  This may happen when a configuration is resolved from a thread not managed by Gradle or from a different project.  See " + documentationRegistry.getDocumentationFor("troubleshooting_dependency_resolution", "sub:configuration_resolution_constraints") + " for more details.");
-            owner.getModel().withLenientState(() -> resolveExclusively(requestedState));
+            if (!GradleThread.isManaged()) {
+                // Error if we are executing in a user-managed thread.
+                throw new IllegalStateException("The configuration " + identityPath.toString() + " was resolved from a thread not managed by Gradle.");
+            } else {
+                // We don't have mutable access to the project, so we throw a deprecation warning and then continue with
+                // lenient locking.
+                DeprecationLogger.deprecateBehaviour("The configuration " + identityPath.toString() + " was resolved without accessing the project in a safe manner.  This may happen when a configuration is resolved from a different project.")
+                    .willBeRemovedInGradle7()
+                    .withUserManual("viewing_debugging_dependencies", "sub:resolving-unsafe-configuration-resolution-errors")
+                    .nagUser();
+                owner.getModel().withLenientState(() -> resolveExclusively(requestedState));
+            }
         } else {
             resolveExclusively(requestedState);
         }
@@ -585,20 +579,20 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
 
     private void warnIfConfigurationIsDeprecatedForResolving() {
         if (resolutionAlternatives != null) {
-            DeprecationLogger.nagUserOfReplacedConfiguration(this.name, DeprecationLogger.ConfigurationDeprecationType.RESOLUTION, resolutionAlternatives);
+            DeprecationLogger.deprecateConfiguration(this.name).forResolution().replaceWith(resolutionAlternatives)
+                .willBecomeAnErrorInGradle7()
+                .withUpgradeGuideSection(5, "dependencies_should_no_longer_be_declared_using_the_compile_and_runtime_configurations")
+                .nagUser();
         }
     }
 
     private void resolveExclusively(InternalState requestedState) {
-        resolutionLock.withLock(new Runnable() {
-            @Override
-            public void run() {
-                if (requestedState == GRAPH_RESOLVED || requestedState == ARTIFACTS_RESOLVED) {
-                    resolveGraphIfRequired(requestedState);
-                }
-                if (requestedState == ARTIFACTS_RESOLVED) {
-                    resolveArtifactsIfRequired();
-                }
+        resolutionLock.withLock(() -> {
+            if (requestedState == GRAPH_RESOLVED || requestedState == ARTIFACTS_RESOLVED) {
+                resolveGraphIfRequired(requestedState);
+            }
+            if (requestedState == ARTIFACTS_RESOLVED) {
+                resolveArtifactsIfRequired();
             }
         });
     }
@@ -707,18 +701,7 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
 
     @Override
     public ExtraExecutionGraphDependenciesResolverFactory getDependenciesResolver() {
-        return new DefaultExtraExecutionGraphDependenciesResolverFactory(() -> getResultsForBuildDependencies(), () -> getResultsForArtifacts(), new WorkNodeAction() {
-            @Nullable
-            @Override
-            public Project getProject() {
-                return owner.getProject();
-            }
-
-            @Override
-            public void run(NodeExecutionContext context) {
-                resolveExclusively(GRAPH_RESOLVED);
-            }
-        }, fileCollectionFactory);
+        return new DefaultExtraExecutionGraphDependenciesResolverFactory(this::getResultsForBuildDependencies, this::getResultsForArtifacts, new ResolveGraphAction(this), fileCollectionFactory);
     }
 
     private ResolverResults getResultsForBuildDependencies() {
@@ -1138,16 +1121,16 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
         if (resolvedState == ARTIFACTS_RESOLVED) {
             // The public result for the configuration has been calculated.
             // It is an error to change anything that would change the dependencies or artifacts
-            throw new InvalidUserDataException(String.format("Cannot change %s of %s after it has been resolved.", type, getDisplayName()));
+            throw new InvalidUserDataException(String.format("Cannot change %s of dependency %s after it has been resolved.", type, getDisplayName()));
         } else if (resolvedState == GRAPH_RESOLVED) {
             // The task dependencies for the configuration have been calculated using Configuration.getBuildDependencies().
-            throw new InvalidUserDataException(String.format("Cannot change %s of %s after task dependencies have been resolved", type, getDisplayName()));
+            throw new InvalidUserDataException(String.format("Cannot change %s of dependency %s after task dependencies have been resolved", type, getDisplayName()));
         } else if (observedState == GRAPH_RESOLVED || observedState == ARTIFACTS_RESOLVED) {
             // The configuration has been used in a resolution, and it is an error for build logic to change any dependencies,
             // exclude rules or parent configurations (values that will affect the resolved graph).
             if (type != MutationType.STRATEGY) {
                 String extraMessage = insideBeforeResolve ? " Use 'defaultDependencies' instead of 'beforeResolve' to specify default dependencies for a configuration." : "";
-                throw new InvalidUserDataException(String.format("Cannot change %s of %s after it has been included in dependency resolution.%s", type, getDisplayName(), extraMessage));
+                throw new InvalidUserDataException(String.format("Cannot change %s of dependency %s after it has been included in dependency resolution.%s", type, getDisplayName(), extraMessage));
             }
         }
     }
@@ -1215,12 +1198,7 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
         }
 
         private ConfigurationFileCollection(final Set<Dependency> dependencies) {
-            this(new Spec<Dependency>() {
-                @Override
-                public boolean isSatisfiedBy(Dependency element) {
-                    return dependencies.contains(element);
-                }
-            });
+            this(dependencies::contains);
         }
 
         @Override
@@ -1247,17 +1225,16 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
         @Override
         public Set<File> getFiles() {
             ResolvedFilesCollectingVisitor visitor = new ResolvedFilesCollectingVisitor();
-            visitFiles(visitor);
+            visitContents(visitor);
             return visitor.getFiles();
         }
 
         @Override
-        public void visitStructure(FileCollectionStructureVisitor visitor) {
-            ResolvedFilesCollectingVisitor collectingVisitor = new ResolvedFileCollectionVisitor(visitor);
-            visitFiles(collectingVisitor);
+        protected void visitContents(FileCollectionStructureVisitor visitor) {
+            visitContents(new ResolvedFileCollectionVisitor(visitor));
         }
 
-        private void visitFiles(ResolvedFilesCollectingVisitor visitor) {
+        private void visitContents(ResolvedFilesCollectingVisitor visitor) {
             getSelectedArtifacts().visitArtifacts(visitor, lenient);
 
             if (!lenient) {
@@ -1289,7 +1266,7 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
 
     private void assertIsResolvable() {
         if (!canBeResolved) {
-            throw new IllegalStateException("Resolving configuration '" + name + "' directly is not allowed");
+            throw new IllegalStateException("Resolving dependency configuration '" + name + "' is not allowed as it is defined as 'canBeResolved=false'.\nInstead, a resolvable ('canBeResolved=true') dependency configuration that extends '" + name + "' should be resolved.");
         }
     }
 
@@ -1371,7 +1348,7 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
 
     @Override
     public DeprecatableConfiguration deprecateForResolution(String... alternativesForResolving) {
-        this.resolutionAlternatives =ImmutableList.copyOf(alternativesForResolving);
+        this.resolutionAlternatives = ImmutableList.copyOf(alternativesForResolving);
         return this;
     }
 
@@ -1719,7 +1696,7 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
         }
     }
 
-    private class ConfigurationArtifactCollection implements ArtifactCollection {
+    private class ConfigurationArtifactCollection implements ArtifactCollectionInternal {
         private final ConfigurationFileCollection fileCollection;
         private final boolean lenient;
         private Set<ResolvedArtifactResult> artifactResults;
@@ -1759,6 +1736,12 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
             return failures;
         }
 
+        @Override
+        public void visitArtifacts(ArtifactVisitor visitor) {
+            // TODO - if already resolved, use the results
+            fileCollection.getSelectedArtifacts().visitArtifacts(visitor, lenient);
+        }
+
         private synchronized void ensureResolved() {
             if (artifactResults != null) {
                 return;
@@ -1784,4 +1767,27 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
         }
     }
 
+    public static class ResolveGraphAction implements WorkNodeAction {
+        private final DefaultConfiguration configuration;
+
+        public ResolveGraphAction(DefaultConfiguration configuration) {
+            this.configuration = configuration;
+        }
+
+        @Override
+        public String toString() {
+            return "resolve graph for " + configuration;
+        }
+
+        @Nullable
+        @Override
+        public Project getProject() {
+            return configuration.owner.getProject();
+        }
+
+        @Override
+        public void run(NodeExecutionContext context) {
+            configuration.resolveExclusively(GRAPH_RESOLVED);
+        }
+    }
 }

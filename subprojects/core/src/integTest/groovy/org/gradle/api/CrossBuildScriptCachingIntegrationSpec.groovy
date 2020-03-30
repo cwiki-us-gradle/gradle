@@ -17,6 +17,7 @@
 package org.gradle.api
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.daemon.DaemonLogsAnalyzer
 import org.gradle.integtests.fixtures.daemon.DaemonsFixture
 import org.gradle.test.fixtures.file.TestFile
@@ -156,6 +157,7 @@ class CrossBuildScriptCachingIntegrationSpec extends AbstractIntegrationSpec {
         hasCachedScripts(settingsHash, *buildHashes)
     }
 
+    @ToBeFixedForInstantExecution
     def "cache size increases when build file changes"() {
         given:
         root {
@@ -251,6 +253,7 @@ class CrossBuildScriptCachingIntegrationSpec extends AbstractIntegrationSpec {
         failure.assertHasLineNumber(4)
     }
 
+    @ToBeFixedForInstantExecution
     def "caches scripts applied from remote locations"() {
         server.start()
 
@@ -274,6 +277,7 @@ class CrossBuildScriptCachingIntegrationSpec extends AbstractIntegrationSpec {
         hasCachedScripts(buildHash, sharedHash)
     }
 
+    @ToBeFixedForInstantExecution
     def "caches scripts applied from remote locations when remote script changes"() {
         server.start()
 
@@ -354,6 +358,7 @@ task fastTask { }
         hasCachedScripts(*hasRemapped('build'))
     }
 
+    @ToBeFixedForInstantExecution
     def "build script is recompiled when project's classpath changes"() {
         createJarWithProperties("lib/foo.jar", [source: 1])
         root {
@@ -389,6 +394,7 @@ task fastTask { }
         getCompileClasspath(coreHash, 'proj').length == 2
     }
 
+    @ToBeFixedForInstantExecution
     def "build script is recompiled when parent project's classpath changes"() {
         createJarWithProperties("lib/foo.jar", [source: 1])
         root {
@@ -485,8 +491,8 @@ task fastTask { }
         remappedCacheSize() == 4
         scriptCacheSize() == 4
         hasCachedScripts(commonHash, settingsHash, coreHash, initHash)
-        getCompileClasspath(commonHash, 'cp_dsl').length == 2 // settings classpath is deprecated so it differs
-        getCompileClasspath(commonHash, 'dsl').length == 2 // settings classpath is deprecated so it differs
+        getCompileClasspath(commonHash, 'cp_dsl').length == 1
+        getCompileClasspath(commonHash, 'dsl').length == 1
     }
 
     def "same script can be applied from identical init script, settings script and build script"() {
@@ -515,8 +521,8 @@ task fastTask { }
         remappedCacheSize() == 4
         scriptCacheSize() == 2
         hasCachedScripts(commonHash, settingsHash, coreHash, initHash)
-        getCompileClasspath(commonHash, 'cp_dsl').length == 2
-        getCompileClasspath(commonHash, 'dsl').length == 2
+        getCompileClasspath(commonHash, 'cp_dsl').length == 1
+        getCompileClasspath(commonHash, 'dsl').length == 1
     }
 
     def "remapped classes have script origin"() {
@@ -581,6 +587,7 @@ task fastTask { }
         noExceptionThrown()
     }
 
+    @ToBeFixedForInstantExecution
     def "same applied script is compiled once for different projects with different classpath"() {
         root {
             'common.gradle'('println "poke"')

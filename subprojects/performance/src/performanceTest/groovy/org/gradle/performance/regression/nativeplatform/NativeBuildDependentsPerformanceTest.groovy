@@ -22,8 +22,8 @@ import spock.lang.Unroll
 class NativeBuildDependentsPerformanceTest extends AbstractCrossVersionGradleProfilerPerformanceTest {
 
     def setup() {
-        runner.targetVersions = ["5.7-20190722220035+0000"]
-        runner.minimumVersion = "4.0"
+        runner.targetVersions = ["6.2-20200108160029+0000"]
+        runner.minimumBaseVersion = "4.0"
     }
 
     @Unroll

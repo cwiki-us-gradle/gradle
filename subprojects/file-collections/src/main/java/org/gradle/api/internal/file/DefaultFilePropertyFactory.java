@@ -16,8 +16,10 @@
 
 package org.gradle.api.internal.file;
 
+import org.gradle.api.Transformer;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.file.FileSystemLocationProperty;
 import org.gradle.api.file.FileTree;
@@ -25,8 +27,9 @@ import org.gradle.api.file.RegularFile;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.internal.provider.AbstractCombiningProvider;
 import org.gradle.api.internal.provider.AbstractMappingProvider;
-import org.gradle.api.internal.provider.AbstractReadOnlyProvider;
+import org.gradle.api.internal.provider.AbstractMinimalProvider;
 import org.gradle.api.internal.provider.DefaultProperty;
+import org.gradle.api.internal.provider.PropertyHost;
 import org.gradle.api.internal.provider.ProviderInternal;
 import org.gradle.api.internal.provider.Providers;
 import org.gradle.api.provider.Provider;
@@ -37,33 +40,51 @@ import org.gradle.internal.state.Managed;
 import javax.annotation.Nullable;
 import java.io.File;
 
-public class DefaultFilePropertyFactory implements FilePropertyFactory {
+public class DefaultFilePropertyFactory implements FilePropertyFactory, FileFactory {
+    private final PropertyHost host;
     private final FileResolver fileResolver;
+    private final FileCollectionFactory fileCollectionFactory;
 
-    public DefaultFilePropertyFactory(FileResolver resolver) {
+    public DefaultFilePropertyFactory(PropertyHost host, FileResolver resolver, FileCollectionFactory fileCollectionFactory) {
+        this.host = host;
         this.fileResolver = resolver;
+        this.fileCollectionFactory = fileCollectionFactory;
     }
 
     @Override
     public DirectoryProperty newDirectoryProperty() {
-        return new DefaultDirectoryVar(fileResolver);
+        return new DefaultDirectoryVar(host, fileResolver, fileCollectionFactory);
     }
 
     @Override
     public RegularFileProperty newFileProperty() {
-        return new DefaultRegularFileVar(fileResolver);
+        return new DefaultRegularFileVar(host, fileResolver);
     }
 
-    static class FixedDirectory extends DefaultFileSystemLocation implements Directory, Managed {
-        final FileResolver fileResolver;
+    @Override
+    public Directory dir(File dir) {
+        dir = fileResolver.resolve(dir);
+        return new FixedDirectory(dir, fileResolver.newResolver(dir), fileCollectionFactory);
+    }
 
-        FixedDirectory(File value, FileResolver fileResolver) {
+    @Override
+    public RegularFile file(File file) {
+        file = fileResolver.resolve(file);
+        return new FixedFile(file);
+    }
+
+    private static class FixedDirectory extends DefaultFileSystemLocation implements Directory, Managed {
+        final FileResolver fileResolver;
+        private final FileCollectionFactory fileCollectionFactory;
+
+        FixedDirectory(File value, FileResolver fileResolver, FileCollectionFactory fileCollectionFactory) {
             super(value);
             this.fileResolver = fileResolver;
+            this.fileCollectionFactory = fileCollectionFactory;
         }
 
         @Override
-        public boolean immutable() {
+        public boolean isImmutable() {
             return true;
         }
 
@@ -85,17 +106,18 @@ public class DefaultFilePropertyFactory implements FilePropertyFactory {
         @Override
         public Directory dir(String path) {
             File newDir = fileResolver.resolve(path);
-            return new FixedDirectory(newDir, fileResolver.newResolver(newDir));
+            FileResolver dirResolver = fileResolver.newResolver(newDir);
+            return new FixedDirectory(newDir, dirResolver, fileCollectionFactory.withResolver(dirResolver));
         }
 
         @Override
         public FileTree getAsFileTree() {
-            return fileResolver.resolveFilesAsTree(this);
+            return fileCollectionFactory.resolving(this).getAsFileTree();
         }
 
         @Override
         public Provider<Directory> dir(Provider<? extends CharSequence> path) {
-            return new ResolvingDirectory(fileResolver, Providers.internal(path));
+            return new ResolvingDirectory(fileResolver, fileCollectionFactory, Providers.internal(path));
         }
 
         @Override
@@ -107,6 +129,11 @@ public class DefaultFilePropertyFactory implements FilePropertyFactory {
         public Provider<RegularFile> file(Provider<? extends CharSequence> path) {
             return new ResolvingRegularFileProvider(fileResolver, Providers.internal(path));
         }
+
+        @Override
+        public FileCollection files(Object... paths) {
+            return fileCollectionFactory.withResolver(fileResolver).resolving(paths);
+        }
     }
 
     static class FixedFile extends DefaultFileSystemLocation implements RegularFile, Managed {
@@ -115,7 +142,7 @@ public class DefaultFilePropertyFactory implements FilePropertyFactory {
         }
 
         @Override
-        public boolean immutable() {
+        public boolean isImmutable() {
             return true;
         }
 
@@ -149,10 +176,10 @@ public class DefaultFilePropertyFactory implements FilePropertyFactory {
         }
     }
 
-    static abstract class AbstractFileVar<T extends FileSystemLocation, THIS extends FileSystemLocationProperty<T>> extends DefaultProperty<T> implements FileSystemLocationProperty<T> {
+    private static abstract class AbstractFileVar<T extends FileSystemLocation, THIS extends FileSystemLocationProperty<T>> extends DefaultProperty<T> implements FileSystemLocationProperty<T> {
 
-        public AbstractFileVar(Class<T> type) {
-            super(type);
+        public AbstractFileVar(PropertyHost host, Class<T> type) {
+            super(host, type);
         }
 
         protected abstract T fromFile(File file);
@@ -200,7 +227,12 @@ public class DefaultFilePropertyFactory implements FilePropertyFactory {
 
         @Override
         public THIS fileProvider(Provider<File> provider) {
-            set(provider.map(file -> fromFile(file)));
+            set(provider.map(new Transformer<T, File>() {
+                @Override
+                public T transform(File file) {
+                    return fromFile(file);
+                }
+            }));
             return Cast.uncheckedNonnullCast(this);
         }
 
@@ -218,17 +250,16 @@ public class DefaultFilePropertyFactory implements FilePropertyFactory {
 
         @Override
         public Provider<T> getLocationOnly() {
-            return new AbstractReadOnlyProvider<T>() {
+            return new AbstractMinimalProvider<T>() {
                 @Nullable
                 @Override
                 public Class<T> getType() {
                     return AbstractFileVar.this.getType();
                 }
 
-                @Nullable
                 @Override
-                public T getOrNull() {
-                    return AbstractFileVar.this.getOrNull();
+                protected Value<? extends T> calculateOwnValue() {
+                    return AbstractFileVar.this.calculateOwnValue();
                 }
             };
         }
@@ -237,8 +268,8 @@ public class DefaultFilePropertyFactory implements FilePropertyFactory {
     public static class DefaultRegularFileVar extends AbstractFileVar<RegularFile, RegularFileProperty> implements RegularFileProperty, Managed {
         private final PathToFileResolver fileResolver;
 
-        DefaultRegularFileVar(PathToFileResolver fileResolver) {
-            super(RegularFile.class);
+        DefaultRegularFileVar(PropertyHost host, PathToFileResolver fileResolver) {
+            super(host, RegularFile.class);
             this.fileResolver = fileResolver;
         }
 
@@ -260,31 +291,30 @@ public class DefaultFilePropertyFactory implements FilePropertyFactory {
 
     static class ResolvingDirectory extends AbstractMappingProvider<Directory, CharSequence> {
         private final FileResolver resolver;
+        private final FileCollectionFactory fileCollectionFactory;
 
-        ResolvingDirectory(FileResolver resolver, ProviderInternal<? extends CharSequence> valueProvider) {
+        ResolvingDirectory(FileResolver resolver, FileCollectionFactory fileCollectionFactory, ProviderInternal<? extends CharSequence> valueProvider) {
             super(Directory.class, valueProvider);
             this.resolver = resolver;
+            this.fileCollectionFactory = fileCollectionFactory;
         }
 
         @Override
         protected Directory mapValue(CharSequence path) {
             File dir = resolver.resolve(path);
-            return new FixedDirectory(dir, resolver.newResolver(dir));
+            FileResolver dirResolver = this.resolver.newResolver(dir);
+            return new FixedDirectory(dir, dirResolver, fileCollectionFactory.withResolver(dirResolver));
         }
     }
 
     public static class DefaultDirectoryVar extends AbstractFileVar<Directory, DirectoryProperty> implements DirectoryProperty, Managed {
         private final FileResolver resolver;
+        private final FileCollectionFactory fileCollectionFactory;
 
-        DefaultDirectoryVar(FileResolver resolver) {
-            super(Directory.class);
+        DefaultDirectoryVar(PropertyHost host, FileResolver resolver, FileCollectionFactory fileCollectionFactory) {
+            super(host, Directory.class);
             this.resolver = resolver;
-        }
-
-        DefaultDirectoryVar(FileResolver resolver, Object value) {
-            super(Directory.class);
-            this.resolver = resolver;
-            resolveAndSet(value);
+            this.fileCollectionFactory = fileCollectionFactory;
         }
 
         @Override
@@ -299,18 +329,14 @@ public class DefaultFilePropertyFactory implements FilePropertyFactory {
 
         @Override
         public FileTree getAsFileTree() {
-            return resolver.resolveFilesAsTree(this);
-        }
-
-        void resolveAndSet(Object value) {
-            File resolved = resolver.resolve(value);
-            set(new FixedDirectory(resolved, resolver.newResolver(resolved)));
+            return fileCollectionFactory.resolving(this).getAsFileTree();
         }
 
         @Override
         protected Directory fromFile(File dir) {
             File resolved = resolver.resolve(dir);
-            return new FixedDirectory(resolved, resolver.newResolver(resolved));
+            FileResolver dirResolver = resolver.newResolver(resolved);
+            return new FixedDirectory(resolved, dirResolver, fileCollectionFactory.withResolver(dirResolver));
         }
 
         @Override
@@ -325,7 +351,7 @@ public class DefaultFilePropertyFactory implements FilePropertyFactory {
 
         @Override
         public Provider<Directory> dir(final Provider<? extends CharSequence> path) {
-            return new AbstractCombiningProvider<Directory, Directory, CharSequence>(Directory.class, this, path) {
+            return new AbstractCombiningProvider<Directory, Directory, CharSequence>(Directory.class, this, Providers.internal(path)) {
                 @Override
                 protected Directory map(Directory b, CharSequence v) {
                     return b.dir(v.toString());
@@ -345,12 +371,17 @@ public class DefaultFilePropertyFactory implements FilePropertyFactory {
 
         @Override
         public Provider<RegularFile> file(final Provider<? extends CharSequence> path) {
-            return new AbstractCombiningProvider<RegularFile, Directory, CharSequence>(RegularFile.class, this, path) {
+            return new AbstractCombiningProvider<RegularFile, Directory, CharSequence>(RegularFile.class, this, Providers.internal(path)) {
                 @Override
                 protected RegularFile map(Directory b, CharSequence v) {
                     return b.file(v.toString());
                 }
             };
+        }
+
+        @Override
+        public FileCollection files(Object... paths) {
+            return fileCollectionFactory.withResolver(resolver).resolving(paths);
         }
     }
 

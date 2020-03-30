@@ -19,7 +19,6 @@ package org.gradle.instantexecution.serialization.beans
 import groovy.lang.Closure
 import org.gradle.api.internal.GeneratedSubclasses
 import org.gradle.api.internal.IConventionAware
-import org.gradle.api.provider.Property
 import org.gradle.instantexecution.InstantExecutionException
 import org.gradle.instantexecution.serialization.Codec
 import org.gradle.instantexecution.serialization.PropertyKind
@@ -36,18 +35,16 @@ class BeanPropertyWriter(
 ) : BeanStateWriter {
 
     private
-    val relevantFields = relevantStateOf(beanType).toList()
+    val relevantFields = relevantStateOf(beanType)
 
     /**
      * Serializes a bean by serializing the value of each of its fields.
      */
     override suspend fun WriteContext.writeStateOf(bean: Any) {
-        writingProperties {
-            for (field in relevantFields) {
-                val fieldName = field.name
-                val fieldValue = valueOrConvention(field.get(bean), bean, fieldName)
-                writeNextProperty(fieldName, fieldValue, PropertyKind.Field)
-            }
+        for (field in relevantFields) {
+            val fieldName = field.name
+            val fieldValue = valueOrConvention(field.get(bean), bean, fieldName)
+            writeNextProperty(fieldName, fieldValue, PropertyKind.Field)
         }
     }
 
@@ -58,16 +55,6 @@ class BeanPropertyWriter(
 
     private
     fun valueOrConvention(fieldValue: Any?, bean: Any, fieldName: String): Any? = when (fieldValue) {
-        is Property<*> -> {
-            if (!fieldValue.isPresent) {
-                // TODO - disallow using convention mapping + property types
-                val convention = conventionalValueOf(bean, fieldName)
-                if (convention != null) {
-                    (fieldValue as Property<Any>).convention(convention)
-                }
-            }
-            fieldValue
-        }
         is Closure<*> -> fieldValue
         // TODO - do not eagerly evaluate these types
         is Callable<*> -> fieldValue.call()
@@ -85,7 +72,6 @@ class BeanPropertyWriter(
  */
 suspend fun WriteContext.writeNextProperty(name: String, value: Any?, kind: PropertyKind): Boolean {
     withPropertyTrace(kind, name) {
-        writeString(name)
         try {
             write(value)
         } catch (passThrough: IOException) {
@@ -107,13 +93,3 @@ suspend fun WriteContext.writeNextProperty(name: String, value: Any?, kind: Prop
 
 private
 fun unpackedTypeNameOf(value: Any) = GeneratedSubclasses.unpackType(value).name
-
-
-/**
- * Ensures a sequence of [writeNextProperty] calls is properly terminated
- * by the end marker (empty String) so that it can be read by [readEachProperty].
- */
-inline fun WriteContext.writingProperties(block: () -> Unit) {
-    block()
-    writeString("")
-}

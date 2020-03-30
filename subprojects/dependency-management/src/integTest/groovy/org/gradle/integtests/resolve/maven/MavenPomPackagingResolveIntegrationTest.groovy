@@ -16,6 +16,7 @@
 package org.gradle.integtests.resolve.maven
 
 import org.gradle.integtests.fixtures.AbstractHttpDependencyResolutionTest
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.test.fixtures.server.http.MavenHttpModule
 import org.gradle.test.fixtures.server.http.MavenHttpRepository
 import spock.lang.Issue
@@ -103,6 +104,7 @@ task retrieve(type: Copy, dependsOn: deleteDir) {
         file('libs').assertDoesNotExist()
     }
 
+    @ToBeFixedForInstantExecution
     def "for a snapshot module with packaging of type 'pom', will check for jar artifact that was previously missing on cache expiry"() {
         when:
         def snapshotA = repo1.module('group', 'projectA', '1.1-SNAPSHOT')
@@ -235,7 +237,7 @@ if (project.hasProperty('skipCache')) {
 
         and:
         // TODO - should report both locations as missing
-        failure.assertHasCause("Could not find projectA.jar (group:projectA:1.0).")
+        failure.assertHasCause("Could not find projectA-1.0.jar (group:projectA:1.0).")
     }
 
     def "will use non-jar dependency type to determine jar artifact location"() {

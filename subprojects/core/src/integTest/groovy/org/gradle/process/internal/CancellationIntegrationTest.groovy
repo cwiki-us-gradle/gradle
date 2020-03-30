@@ -17,6 +17,7 @@
 package org.gradle.process.internal
 
 import org.gradle.integtests.fixtures.DirectoryBuildCacheFixture
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.daemon.DaemonClientFixture
 import org.gradle.integtests.fixtures.daemon.DaemonIntegrationSpec
 import org.gradle.internal.jvm.Jvm
@@ -29,6 +30,7 @@ class CancellationIntegrationTest extends DaemonIntegrationSpec implements Direc
     private int daemonLogCheckpoint
 
     @Unroll
+    @ToBeFixedForInstantExecution
     def "can cancel #scenario"() {
         given:
         blockCode()
@@ -73,6 +75,7 @@ class CancellationIntegrationTest extends DaemonIntegrationSpec implements Direc
     }
 
     @Unroll
+    @ToBeFixedForInstantExecution
     def "task gets rerun after cancellation when buildcache = #buildCacheEnabled and ignoreExitValue = #ignoreExitValue"() {
         given:
         file('outputFile') << ''
@@ -113,20 +116,25 @@ class CancellationIntegrationTest extends DaemonIntegrationSpec implements Direc
         file('outputFile') << ''
         blockCode()
         buildFile << """
+            import javax.inject.Inject
+
             apply plugin: 'java'
             
             @CacheableTask
-            class MyExec extends DefaultTask {
+            abstract class MyExec extends DefaultTask {
                 @Input
                 String getInput() { "input" }
                 
                 @OutputFile
                 File getOutputFile() { new java.io.File('${fileToPath(file('outputFile'))}') }
 
+                @Inject
+                abstract ExecOperations getExecOperations()
+
                 @TaskAction
                 void action() {
                     try {
-                        def result = project.exec { commandLine '${fileToPath(Jvm.current().javaExecutable)}', '-cp', '${fileToPath(file('build/classes/java/main'))}', 'Block' }
+                        def result = execOperations.exec { commandLine '${fileToPath(Jvm.current().javaExecutable)}', '-cp', '${fileToPath(file('build/classes/java/main'))}', 'Block' }
                     } catch (Throwable t) {
                         if(!${ignored}) {
                             throw t

@@ -64,12 +64,7 @@ public abstract class DefaultSourceSet implements SourceSet {
 
         String resourcesDisplayName = displayName + " resources";
         resources = objectFactory.sourceDirectorySet("resources", resourcesDisplayName);
-        resources.getFilter().exclude(new Spec<FileTreeElement>() {
-            @Override
-            public boolean isSatisfiedBy(FileTreeElement element) {
-                return javaSource.contains(element.getFile());
-            }
-        });
+        resources.getFilter().exclude(new IsJavaSourceSpec(javaSource));
 
         String allSourceDisplayName = displayName + " source";
         allSource = objectFactory.sourceDirectorySet("allsource", allSourceDisplayName);
@@ -113,8 +108,23 @@ public abstract class DefaultSourceSet implements SourceSet {
     }
 
     @Override
+    public String getJavadocTaskName() {
+        return getTaskName(null, JavaPlugin.JAVADOC_TASK_NAME);
+    }
+
+    @Override
     public String getJarTaskName() {
         return getTaskName(null, "jar");
+    }
+
+    @Override
+    public String getJavadocJarTaskName() {
+        return getTaskName(null, "javadocJar");
+    }
+
+    @Override
+    public String getSourcesJarTaskName() {
+        return getTaskName(null, "sourcesJar");
     }
 
     @Override
@@ -183,6 +193,16 @@ public abstract class DefaultSourceSet implements SourceSet {
     @Override
     public String getRuntimeElementsConfigurationName() {
         return configurationNameOf(JavaPlugin.RUNTIME_ELEMENTS_CONFIGURATION_NAME);
+    }
+
+    @Override
+    public String getJavadocElementsConfigurationName() {
+        return configurationNameOf(JavaPlugin.JAVADOC_ELEMENTS_CONFIGURATION_NAME);
+    }
+
+    @Override
+    public String getSourcesElementsConfigurationName() {
+        return configurationNameOf(JavaPlugin.SOURCES_ELEMENTS_CONFIGURATION_NAME);
     }
 
     @Override
@@ -272,5 +292,18 @@ public abstract class DefaultSourceSet implements SourceSet {
     @Override
     public SourceDirectorySet getAllSource() {
         return allSource;
+    }
+
+    private static class IsJavaSourceSpec implements Spec<FileTreeElement> {
+        private final FileCollection javaSource;
+
+        public IsJavaSourceSpec(FileCollection javaSource) {
+            this.javaSource = javaSource;
+        }
+
+        @Override
+        public boolean isSatisfiedBy(FileTreeElement element) {
+            return javaSource.contains(element.getFile());
+        }
     }
 }

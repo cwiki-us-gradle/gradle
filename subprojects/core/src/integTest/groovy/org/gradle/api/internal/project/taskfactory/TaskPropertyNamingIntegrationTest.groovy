@@ -17,6 +17,7 @@
 package org.gradle.api.internal.project.taskfactory
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import spock.lang.Issue
 
 class TaskPropertyNamingIntegrationTest extends AbstractIntegrationSpec {
@@ -79,15 +80,16 @@ class TaskPropertyNamingIntegrationTest extends AbstractIntegrationSpec {
                 doLast {
                     def outputFiles = [:]
                     def inputFiles = [:]
-                    TaskPropertyUtils.visitProperties(project.services.get(PropertyWalker), it, new PropertyVisitor.Adapter() {
+                    def layout = services.get(ProjectLayout)
+                    TaskPropertyUtils.visitProperties(services.get(PropertyWalker), it, new PropertyVisitor.Adapter() {
                         @Override
                         void visitInputFileProperty(String propertyName, boolean optional, boolean skipWhenEmpty, boolean incremental, Class<? extends FileNormalizer> fileNormalizer, PropertyValue value, InputFilePropertyType filePropertyType) {
-                            inputFiles[propertyName] = project.files(value)
+                            inputFiles[propertyName] = layout.files(value)
                         }
 
                         @Override
                         void visitOutputFileProperty(String propertyName, boolean optional, PropertyValue value, OutputFilePropertyType filePropertyType) {
-                            outputFiles[propertyName] = project.files(value)
+                            outputFiles[propertyName] = layout.files(value)
                         }
                     })
                     inputFiles.each { propertyName, value ->
@@ -120,6 +122,7 @@ class TaskPropertyNamingIntegrationTest extends AbstractIntegrationSpec {
         output.contains 'Output: outputFiles$2 [output2.txt]'
     }
 
+    @ToBeFixedForInstantExecution
     def "nested properties are discovered"() {
         buildFile << classesForNestedProperties()
         buildFile << """
@@ -151,6 +154,7 @@ class TaskPropertyNamingIntegrationTest extends AbstractIntegrationSpec {
         output.contains "Output file property 'bean.outputDir'"
     }
 
+    @ToBeFixedForInstantExecution
     def "nested iterable properties have names"() {
         buildFile << printPropertiesTask()
         buildFile << """ 
@@ -185,6 +189,7 @@ class TaskPropertyNamingIntegrationTest extends AbstractIntegrationSpec {
         output.contains "Input property 'beans.\$1.secondInput'"
     }
 
+    @ToBeFixedForInstantExecution
     def "nested destroyables are discovered"() {
         buildFile << classesForNestedProperties()
         buildFile << """
@@ -215,6 +220,7 @@ class TaskPropertyNamingIntegrationTest extends AbstractIntegrationSpec {
         output =~ /Destroys: '.*destroyed'/
     }
 
+    @ToBeFixedForInstantExecution
     def "nested local state is discovered"() {
         buildFile << classesForNestedProperties()
         buildFile << """
@@ -245,6 +251,7 @@ class TaskPropertyNamingIntegrationTest extends AbstractIntegrationSpec {
         output =~ /Local state: '.*localState'/
     }
 
+    @ToBeFixedForInstantExecution
     def "unnamed file properties are named"() {
         buildFile << """
             import org.gradle.api.internal.tasks.*
@@ -276,6 +283,7 @@ class TaskPropertyNamingIntegrationTest extends AbstractIntegrationSpec {
     }
 
     @Issue("https://github.com/gradle/gradle/issues/4085")
+    @ToBeFixedForInstantExecution
     def "can register more unnamed properties after properties have been queried"() {
         buildFile << """
             import org.gradle.api.internal.tasks.*
@@ -316,6 +324,7 @@ class TaskPropertyNamingIntegrationTest extends AbstractIntegrationSpec {
             """.stripIndent()
     }
 
+    @ToBeFixedForInstantExecution
     def "input properties can be overridden"() {
         buildFile << classesForNestedProperties()
         buildFile << """
@@ -388,6 +397,7 @@ class TaskPropertyNamingIntegrationTest extends AbstractIntegrationSpec {
             import org.gradle.api.internal.tasks.properties.*
 
             class PrintInputsAndOutputs extends DefaultTask {
+                @Internal
                 Task task
                 @TaskAction
                 void printInputsAndOutputs() {

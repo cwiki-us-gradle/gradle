@@ -16,6 +16,7 @@
 package org.gradle.api.publish.ivy
 
 import org.gradle.integtests.fixtures.AbstractSampleIntegrationTest
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.Sample
 import org.gradle.integtests.fixtures.UsesSample
 import org.gradle.util.TextUtil
@@ -27,6 +28,7 @@ class SamplesIvyPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("ivy-publish/quickstart")
+    @ToBeFixedForInstantExecution
     def "quickstart sample with #dsl dsl"() {
         given:
         def sampleDir = sampleProject.dir.file(dsl)
@@ -48,6 +50,7 @@ class SamplesIvyPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("ivy-publish/java-multi-project")
+    @ToBeFixedForInstantExecution
     def "java-multi-project sample with #dsl dsl"() {
         given:
         def sampleDir = sampleProject.dir.file(dsl)
@@ -63,17 +66,17 @@ class SamplesIvyPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
         then:
         project1module.assertPublished()
-        project1module.assertArtifactsPublished("project1-1.0.jar", "project1-1.0-sources.jar", "ivy-1.0.xml", "project1-1.0.module")
+        project1module.assertArtifactsPublished("project1-1.0.jar", "project1-1.0-javadoc.jar", "project1-1.0-sources.jar", "ivy-1.0.xml", "project1-1.0.module")
 
-        project1module.parsedIvy.configurations.keySet() == ['default', 'compile', 'runtime'] as Set
+        project1module.parsedIvy.configurations.keySet() == ['default', 'compile', 'runtime', 'javadocElements', 'sourcesElements'] as Set
         project1module.parsedIvy.description.text() == "The first project"
         project1module.parsedIvy.assertDependsOn("junit:junit:4.12@runtime", "org.gradle.sample:project2:1.0@runtime")
 
         and:
         project2module.assertPublished()
-        project2module.assertArtifactsPublished("project2-1.0.jar", "project2-1.0-sources.jar", "ivy-1.0.xml", "project2-1.0.module")
+        project2module.assertArtifactsPublished("project2-1.0.jar", "project2-1.0-javadoc.jar", "project2-1.0-sources.jar", "ivy-1.0.xml", "project2-1.0.module")
 
-        project2module.parsedIvy.configurations.keySet() == ['default', 'compile', 'runtime'] as Set
+        project2module.parsedIvy.configurations.keySet() == ['default', 'compile', 'runtime', 'javadocElements', 'sourcesElements'] as Set
         project2module.parsedIvy.description.text() == "The second project"
         project2module.parsedIvy.assertDependsOn('commons-collections:commons-collections:3.2.2@runtime')
 
@@ -86,6 +89,7 @@ class SamplesIvyPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("ivy-publish/descriptor-customization")
+    @ToBeFixedForInstantExecution
     def "descriptor-customization sample with #dsl dsl"() {
         given:
         def sampleDir = sampleProject.dir.file(dsl)
@@ -115,6 +119,7 @@ class SamplesIvyPublishIntegrationTest extends AbstractSampleIntegrationTest {
     }
 
     @UsesSample("ivy-publish/conditional-publishing")
+    @ToBeFixedForInstantExecution
     def conditionalPublishing() {
         given:
         sample sampleProject
@@ -141,6 +146,7 @@ class SamplesIvyPublishIntegrationTest extends AbstractSampleIntegrationTest {
     }
 
     @UsesSample("ivy-publish/conditional-publishing")
+    @ToBeFixedForInstantExecution
     def shorthandPublishToExternalRepository() {
         given:
         sample sampleProject
@@ -155,6 +161,7 @@ class SamplesIvyPublishIntegrationTest extends AbstractSampleIntegrationTest {
     }
 
     @UsesSample("ivy-publish/conditional-publishing")
+    @ToBeFixedForInstantExecution
     def shorthandPublishToInternalRepository() {
         given:
         sample sampleProject
@@ -169,6 +176,7 @@ class SamplesIvyPublishIntegrationTest extends AbstractSampleIntegrationTest {
     }
 
     @UsesSample("ivy-publish/publish-artifact")
+    @ToBeFixedForInstantExecution
     def publishesRpmArtifact() {
         given:
         sample sampleProject
@@ -190,6 +198,7 @@ class SamplesIvyPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("ivy-publish/distribution")
+    @ToBeFixedForInstantExecution
     def "publishes distribution archives with #dsl dsl"() {
         given:
         def sampleDir = sampleProject.dir.file(dsl)

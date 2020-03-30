@@ -28,10 +28,12 @@ import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
 import org.gradle.api.artifacts.dsl.ComponentMetadataHandler;
 import org.gradle.api.artifacts.ivy.IvyModuleDescriptor;
+import org.gradle.api.artifacts.maven.PomModuleDescriptor;
 import org.gradle.api.internal.artifacts.ComponentMetadataProcessor;
 import org.gradle.api.internal.artifacts.ComponentMetadataProcessorFactory;
 import org.gradle.api.internal.artifacts.ImmutableModuleIdentifierFactory;
 import org.gradle.api.internal.artifacts.MetadataResolutionContext;
+import org.gradle.api.internal.artifacts.dsl.dependencies.PlatformSupport;
 import org.gradle.api.internal.artifacts.repositories.resolver.DependencyConstraintMetadataImpl;
 import org.gradle.api.internal.artifacts.repositories.resolver.DirectDependencyMetadataImpl;
 import org.gradle.api.internal.attributes.ImmutableAttributesFactory;
@@ -58,7 +60,6 @@ import org.gradle.internal.typeconversion.UnsupportedNotationException;
 
 public class DefaultComponentMetadataHandler implements ComponentMetadataHandler, ComponentMetadataHandlerInternal, ComponentMetadataProcessorFactory {
     private static final String ADAPTER_NAME = ComponentMetadataHandler.class.getSimpleName();
-    private static final Class<?> VALIDATOR_PARAM = IvyModuleDescriptor.class;
     private static final String INVALID_SPEC_ERROR = "Could not add a component metadata rule for module '%s'.";
 
     private final Instantiator instantiator;
@@ -71,6 +72,7 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
     private final ImmutableAttributesFactory attributesFactory;
     private final IsolatableFactory isolatableFactory;
     private final ComponentMetadataRuleExecutor ruleExecutor;
+    private final PlatformSupport platformSupport;
 
     DefaultComponentMetadataHandler(Instantiator instantiator,
                                     RuleActionAdapter ruleActionAdapter,
@@ -78,7 +80,8 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
                                     Interner<String> stringInterner,
                                     ImmutableAttributesFactory attributesFactory,
                                     IsolatableFactory isolatableFactory,
-                                    ComponentMetadataRuleExecutor ruleExecutor) {
+                                    ComponentMetadataRuleExecutor ruleExecutor,
+                                    PlatformSupport platformSupport) {
         this.instantiator = instantiator;
         this.ruleActionAdapter = ruleActionAdapter;
         this.moduleIdentifierNotationParser = NotationParserBuilder
@@ -92,14 +95,15 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
         this.attributesFactory = attributesFactory;
         this.isolatableFactory = isolatableFactory;
         this.metadataRuleContainer = new ComponentMetadataRuleContainer();
+        this.platformSupport = platformSupport;
     }
 
-    public DefaultComponentMetadataHandler(Instantiator instantiator, ImmutableModuleIdentifierFactory moduleIdentifierFactory, Interner<String> stringInterner, ImmutableAttributesFactory attributesFactory, IsolatableFactory isolatableFactory, ComponentMetadataRuleExecutor ruleExecutor) {
-        this(instantiator, createAdapter(), moduleIdentifierFactory, stringInterner, attributesFactory, isolatableFactory, ruleExecutor);
+    public DefaultComponentMetadataHandler(Instantiator instantiator, ImmutableModuleIdentifierFactory moduleIdentifierFactory, Interner<String> stringInterner, ImmutableAttributesFactory attributesFactory, IsolatableFactory isolatableFactory, ComponentMetadataRuleExecutor ruleExecutor, PlatformSupport platformSupport) {
+        this(instantiator, createAdapter(), moduleIdentifierFactory, stringInterner, attributesFactory, isolatableFactory, ruleExecutor, platformSupport);
     }
 
     private static RuleActionAdapter createAdapter() {
-        RuleActionValidator ruleActionValidator = new DefaultRuleActionValidator(VALIDATOR_PARAM);
+        RuleActionValidator ruleActionValidator = new DefaultRuleActionValidator(IvyModuleDescriptor.class, PomModuleDescriptor.class);
         return new DefaultRuleActionAdapter(ruleActionValidator, ADAPTER_NAME);
     }
 
@@ -199,7 +203,7 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
 
     @Override
     public ComponentMetadataProcessor createComponentMetadataProcessor(MetadataResolutionContext resolutionContext) {
-        return new DefaultComponentMetadataProcessor(metadataRuleContainer, instantiator, dependencyMetadataNotationParser, dependencyConstraintMetadataNotationParser, componentIdentifierNotationParser, attributesFactory, ruleExecutor, resolutionContext);
+        return new DefaultComponentMetadataProcessor(metadataRuleContainer, instantiator, dependencyMetadataNotationParser, dependencyConstraintMetadataNotationParser, componentIdentifierNotationParser, attributesFactory, ruleExecutor, platformSupport, resolutionContext);
     }
 
     @Override

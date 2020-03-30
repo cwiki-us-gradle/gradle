@@ -17,6 +17,7 @@
 package org.gradle.integtests.resolve.locking
 
 import org.gradle.integtests.fixtures.AbstractDependencyResolutionTest
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 
 class MultiProjectDependencyLockingIntegrationTest  extends AbstractDependencyResolutionTest {
 
@@ -56,7 +57,7 @@ project(':second') {
     }
 }
 """
-        firstLockFileFixture.createLockfile('compileClasspath', ['org:foo:1.0'])
+        firstLockFileFixture.createLockfile('compileClasspath', ['org:foo:1.0'], false)
 
         when:
         succeeds ':first:dependencyInsight', '--configuration', 'compileClasspath', '--dependency', 'foo'
@@ -98,7 +99,7 @@ project(':second') {
     }
 }
 """
-        firstLockFileFixture.createLockfile('compileClasspath', ['org:foo:1.0'])
+        firstLockFileFixture.createLockfile('compileClasspath', ['org:foo:1.0'], false)
 
         when:
         succeeds ':first:dependencyInsight', '--configuration', 'compileClasspath', '--dependency', 'foo'
@@ -113,6 +114,7 @@ project(':second') {
         outputContains('org:foo:1.1')
     }
 
+    @ToBeFixedForInstantExecution
     def 'creates a lock file including transitive dependencies of dependent project'() {
         mavenRepo.module('org', 'foo', '1.0').publish()
         mavenRepo.module('org', 'foo', '1.1').publish()
@@ -145,6 +147,6 @@ project(':second') {
 
         then:
         outputContains('Persisted dependency lock state for configuration \':first:compileClasspath\'')
-        firstLockFileFixture.verifyLockfile('compileClasspath', ['org:foo:1.1'])
+        firstLockFileFixture.verifyLockfile('compileClasspath', ['org:foo:1.1'], false)
     }
 }

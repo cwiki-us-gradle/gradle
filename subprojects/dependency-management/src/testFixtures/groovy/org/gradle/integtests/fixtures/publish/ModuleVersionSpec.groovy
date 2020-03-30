@@ -16,6 +16,8 @@
 
 package org.gradle.integtests.fixtures.publish
 
+import org.gradle.api.attributes.Category
+import org.gradle.api.attributes.Usage
 import org.gradle.test.fixtures.HttpModule
 import org.gradle.test.fixtures.HttpRepository
 import org.gradle.test.fixtures.Module
@@ -40,6 +42,13 @@ class ModuleVersionSpec {
     private final Map<String, String> componentLevelAttributes = [:]
     private List<InteractionExpectation> expectGetMetadata = [InteractionExpectation.NONE]
     private List<ArtifactExpectation> expectGetArtifact = []
+    private MetadataType metadataType = MetadataType.REPO_DEFAULT
+
+    static enum MetadataType {
+        REPO_DEFAULT,
+        GRADLE,
+        LEGACY
+    }
 
     static class ArtifactExpectation {
         final InteractionExpectation type
@@ -98,6 +107,10 @@ class ModuleVersionSpec {
         expectGetArtifact << new ArtifactExpectation(InteractionExpectation.HEAD_MISSING, artifact)
     }
 
+    void maybeHeadOrGetArtifact(Map<String, String> artifact) {
+        expectGetArtifact << new ArtifactExpectation(InteractionExpectation.MAYBE, artifact)
+    }
+
     void maybeGetMetadata() {
         expectGetMetadata << InteractionExpectation.MAYBE
     }
@@ -122,6 +135,24 @@ class ModuleVersionSpec {
         variants << variant
     }
 
+    void asPlatform() {
+        variant('apiElements') {
+            useDefaultArtifacts = false
+            noArtifacts = true
+            attribute(Usage.USAGE_ATTRIBUTE.name, Usage.JAVA_API)
+            attribute(Category.CATEGORY_ATTRIBUTE.name, Category.REGULAR_PLATFORM)
+        }
+        variant('runtimeElements') {
+            useDefaultArtifacts = false
+            noArtifacts = true
+            attribute(Usage.USAGE_ATTRIBUTE.name, Usage.JAVA_RUNTIME)
+            attribute(Category.CATEGORY_ATTRIBUTE.name, Category.REGULAR_PLATFORM)
+        }
+        withModule(MavenModule) {
+            hasPackaging("pom")
+        }
+    }
+
     void dependsOn(coord) {
         dependsOn << coord
     }
@@ -129,6 +160,15 @@ class ModuleVersionSpec {
     void constraint(coord) {
         constraints << coord
     }
+
+    void withoutGradleMetadata() {
+        metadataType = MetadataType.LEGACY
+    }
+
+    void withGradleMetadata() {
+        metadataType = MetadataType.GRADLE
+    }
+
 
     void withModule(@DelegatesTo(HttpModule) Closure<?> spec) {
         withModule << spec
@@ -153,13 +193,14 @@ class ModuleVersionSpec {
     void build(HttpRepository repository) {
         def module = repository.module(groupId, artifactId, version)
         def legacyMetadataIsRequested = repository.providesMetadata != HttpRepository.MetadataType.ONLY_GRADLE
-        def gradleMetadataWasPublished = repository.providesMetadata != HttpRepository.MetadataType.ONLY_ORIGINAL
+        def gradleMetadataWasPublished = metadataType == MetadataType.GRADLE || (metadataType == MetadataType.REPO_DEFAULT  && repository.providesMetadata != HttpRepository.MetadataType.ONLY_ORIGINAL)
         if (gradleMetadataWasPublished) {
             module.withModuleMetadata()
         }
         expectGetMetadata.each {
             switch (it) {
                 case InteractionExpectation.NONE:
+                    true // workaround for groovy-2.5.10 regression: https://issues.apache.org/jira/browse/GROOVY-9424
                     break
                 case InteractionExpectation.MAYBE:
                     if (module instanceof MavenModule) {
@@ -217,7 +258,7 @@ class ModuleVersionSpec {
                     } else if (module instanceof MavenModule) {
                         artifacts << module.getArtifact(expectation.spec)
                     } else if (module instanceof IvyModule) {
-                        artifacts << module.artifact(expectation.spec)
+                        artifacts << module.getArtifact(expectation.spec)
                     }
                 } else {
                     artifacts << module.artifact

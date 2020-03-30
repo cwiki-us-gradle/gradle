@@ -40,6 +40,20 @@ abstract class WellBehavedPluginTest extends AbstractPluginIntegrationTest {
         return "assemble"
     }
 
+    @ToBeFixedForInstantExecution(bottomSpecs = [
+        "HelpTasksPluginIntegrationTest",
+        "BuildDashboardPluginIntegrationTest",
+        "JavaGradlePluginPluginIntegrationTest",
+        "ApplicationPluginIntegrationTest",
+        "CheckstylePluginIntegrationTest",
+        "CodeNarcPluginIntegrationTest",
+        "PmdPluginIntegrationTest",
+        "CppLibraryPluginIntegrationTest",
+        "CppApplicationPluginIntegrationTest",
+        "SwiftApplicationPluginIntegrationTest",
+        "XcodePluginIntegrationTest",
+        "IdeaPluginGoodBehaviourTest"
+    ])
     def "can apply plugin unqualified"() {
         given:
         applyPluginUnqualified()
@@ -48,6 +62,7 @@ abstract class WellBehavedPluginTest extends AbstractPluginIntegrationTest {
         succeeds mainTask
     }
 
+    @ToBeFixedForInstantExecution
     def "plugin does not force creation of build dir during configuration"() {
         given:
         applyPlugin()
@@ -59,6 +74,20 @@ abstract class WellBehavedPluginTest extends AbstractPluginIntegrationTest {
         !file("build").exists()
     }
 
+    @ToBeFixedForInstantExecution(bottomSpecs = [
+        "HelpTasksPluginIntegrationTest",
+        "BuildDashboardPluginIntegrationTest",
+        "JavaGradlePluginPluginIntegrationTest",
+        "ApplicationPluginIntegrationTest",
+        "CheckstylePluginIntegrationTest",
+        "CodeNarcPluginIntegrationTest",
+        "PmdPluginIntegrationTest",
+        "CppLibraryPluginIntegrationTest",
+        "CppApplicationPluginIntegrationTest",
+        "SwiftApplicationPluginIntegrationTest",
+        "XcodePluginIntegrationTest",
+        "IdeaPluginGoodBehaviourTest"
+    ])
     def "plugin can build with empty project"() {
         given:
         applyPlugin()
@@ -95,10 +124,10 @@ abstract class WellBehavedPluginTest extends AbstractPluginIntegrationTest {
             tasks.configureEach {
                 configuredTasks << it
             }
-            
+
             gradle.buildFinished {
                 def configuredTaskPaths = configuredTasks*.path
-                
+
                 assert configuredTaskPaths == [':help']
             }
         """

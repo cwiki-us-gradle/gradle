@@ -17,6 +17,7 @@ package org.gradle.api
 
 import org.gradle.api.internal.FeaturePreviewsActivationFixture
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.executer.ArtifactBuilder
 import org.gradle.internal.os.OperatingSystem
 import org.gradle.test.fixtures.file.TestFile
@@ -33,12 +34,12 @@ class SettingsScriptExecutionIntegrationTest extends AbstractIntegrationSpec {
         """
 
         when:
-        executer.expectDeprecationWarning()
-        succeeds()
+        executer.expectDocumentedDeprecationWarning("enableFeaturePreview('$feature') has been deprecated. This is scheduled to be removed in Gradle 7.0. " +
+            "The feature flag is no longer relevant, please remove it from your settings file. " +
+            "See https://docs.gradle.org/current/userguide/feature_lifecycle.html#feature_preview for more details.")
 
         then:
-        outputContains("enableFeaturePreview('$feature') has been deprecated.")
-        outputContains("The feature flag is no longer relevant, please remove it from your settings file.")
+        succeeds()
 
         where:
         feature << FeaturePreviewsActivationFixture.inactiveFeatures()
@@ -84,6 +85,7 @@ class SettingsScriptExecutionIntegrationTest extends AbstractIntegrationSpec {
         }
     }
 
+    @ToBeFixedForInstantExecution
     def "notices changes to settings scripts that do not change the file length"() {
         settingsFile.text = "println 'counter: __'"
         long before = settingsFile.length()
@@ -109,7 +111,7 @@ buildscript {
     dependencies { classpath files('repo/test-1.3.jar') }
 }
 new org.gradle.test.BuildClass()
-new BuildSrcClass();
+
 println 'quiet message'
 logging.captureStandardOutput(LogLevel.ERROR)
 println 'error message'
@@ -128,16 +130,21 @@ try {
         buildscript.classLoader.close()
     }
 }
+
+try {
+    buildscript.classLoader.loadClass('BuildSrcClass')
+    assert false: 'should fail'
+} catch (ClassNotFoundException e) {
+    // expected
+}
 """
         buildFile << 'task doStuff'
 
         when:
-        executer.expectDeprecationWarning()
         run('doStuff')
 
         then:
         output.contains('quiet message')
-        output.contains("Access to the buildSrc project and its dependencies in settings scripts has been deprecated.")
         errorOutput.contains('error message')
     }
 

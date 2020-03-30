@@ -25,17 +25,18 @@ import org.gradle.api.attributes.LibraryElements;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileTreeElement;
+import org.gradle.api.file.SourceDirectorySet;
 import org.gradle.api.internal.classpath.ModuleRegistry;
 import org.gradle.api.internal.plugins.DslObject;
 import org.gradle.api.internal.tasks.DefaultGroovySourceSet;
 import org.gradle.api.internal.tasks.DefaultSourceSet;
 import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.plugins.internal.JvmPluginsHelper;
-import org.gradle.api.provider.Provider;
 import org.gradle.api.reporting.ReportingExtension;
 import org.gradle.api.specs.Spec;
 import org.gradle.api.tasks.GroovyRuntime;
 import org.gradle.api.tasks.SourceSet;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.compile.CompileOptions;
 import org.gradle.api.tasks.compile.GroovyCompile;
 import org.gradle.api.tasks.javadoc.Groovydoc;
@@ -100,26 +101,21 @@ public class GroovyBasePlugin implements Plugin<Project> {
                 final DefaultGroovySourceSet groovySourceSet = new DefaultGroovySourceSet("groovy", ((DefaultSourceSet) sourceSet).getDisplayName(), objectFactory);
                 new DslObject(sourceSet).getConvention().getPlugins().put("groovy", groovySourceSet);
 
-                groovySourceSet.getGroovy().srcDir("src/" + sourceSet.getName() + "/groovy");
-                sourceSet.getResources().getFilter().exclude(new Spec<FileTreeElement>() {
-                    @Override
-                    public boolean isSatisfiedBy(FileTreeElement element) {
-                        return groovySourceSet.getGroovy().contains(element.getFile());
-                    }
-                });
-                sourceSet.getAllJava().source(groovySourceSet.getGroovy());
-                sourceSet.getAllSource().source(groovySourceSet.getGroovy());
+                final SourceDirectorySet groovySource = groovySourceSet.getGroovy();
+                groovySource.srcDir("src/" + sourceSet.getName() + "/groovy");
+                sourceSet.getResources().getFilter().exclude(new IsGroovySourceSpec(groovySource));
+                sourceSet.getAllJava().source(groovySource);
+                sourceSet.getAllSource().source(groovySource);
 
-                final Provider<GroovyCompile> compileTask = project.getTasks().register(sourceSet.getCompileTaskName("groovy"), GroovyCompile.class, new Action<GroovyCompile>() {
+                final TaskProvider<GroovyCompile> compileTask = project.getTasks().register(sourceSet.getCompileTaskName("groovy"), GroovyCompile.class, new Action<GroovyCompile>() {
                     @Override
                     public void execute(final GroovyCompile compile) {
-                        JvmPluginsHelper.configureForSourceSet(sourceSet, groovySourceSet.getGroovy(), compile, compile.getOptions(), project);
-                        compile.dependsOn(sourceSet.getCompileJavaTaskName());
+                        JvmPluginsHelper.configureForSourceSet(sourceSet, groovySource, compile, compile.getOptions(), project);
                         compile.setDescription("Compiles the " + sourceSet.getName() + " Groovy source.");
-                        compile.setSource(groovySourceSet.getGroovy());
+                        compile.setSource(groovySource);
                     }
                 });
-                JvmPluginsHelper.configureOutputDirectoryForSourceSet(sourceSet, groovySourceSet.getGroovy(), project, compileTask, compileTask.map(new Transformer<CompileOptions, GroovyCompile>() {
+                JvmPluginsHelper.configureOutputDirectoryForSourceSet(sourceSet, groovySource, project, compileTask, compileTask.map(new Transformer<CompileOptions, GroovyCompile>() {
                     @Override
                     public CompileOptions transform(GroovyCompile groovyCompile) {
                         return groovyCompile.getOptions();
@@ -180,5 +176,18 @@ public class GroovyBasePlugin implements Plugin<Project> {
 
     private JavaPluginConvention java(Convention convention) {
         return convention.getPlugin(JavaPluginConvention.class);
+    }
+
+    private static class IsGroovySourceSpec implements Spec<FileTreeElement> {
+        private final FileCollection groovySource;
+
+        public IsGroovySourceSpec(FileCollection groovySource) {
+            this.groovySource = groovySource;
+        }
+
+        @Override
+        public boolean isSatisfiedBy(FileTreeElement element) {
+            return groovySource.contains(element.getFile());
+        }
     }
 }

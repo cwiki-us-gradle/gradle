@@ -39,7 +39,7 @@ import static org.junit.Assert.assertThat
 @UsesNativeServices
 class DefaultJavaForkOptionsTest extends Specification {
     @Rule
-    public final TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
+    public final TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider(getClass())
     private final resolver = TestFiles.pathToFileResolver(tmpDir.testDirectory)
     private final fileCollectionFactory = TestFiles.fileCollectionFactory(tmpDir.testDirectory)
     private DefaultJavaForkOptions options
@@ -355,7 +355,7 @@ class DefaultJavaForkOptionsTest extends Specification {
         1 * target.setSystemProperties([key: 12])
         1 * target.setMinHeapSize('64m')
         1 * target.setMaxHeapSize('1g')
-        1 * target.setBootstrapClasspath(options.bootstrapClasspath)
+        1 * target.bootstrapClasspath(_)
         1 * target.setEnableAssertions(false)
         1 * target.getDebugOptions() >> new DefaultJavaDebugOptions()
 

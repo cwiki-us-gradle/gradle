@@ -19,12 +19,13 @@ package org.gradle.execution;
 import org.gradle.StartParameter;
 import org.gradle.api.execution.TaskActionListener;
 import org.gradle.api.execution.TaskExecutionListener;
-import org.gradle.api.execution.internal.TaskInputsListener;
+import org.gradle.api.execution.internal.TaskInputsListeners;
 import org.gradle.api.internal.cache.StringInterner;
 import org.gradle.api.internal.changedetection.TaskExecutionModeResolver;
 import org.gradle.api.internal.changedetection.changes.DefaultTaskExecutionModeResolver;
 import org.gradle.api.internal.changedetection.state.ResourceSnapshotterCacheService;
 import org.gradle.api.internal.file.FileCollectionFactory;
+import org.gradle.api.internal.file.FileOperations;
 import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.internal.tasks.TaskExecuter;
 import org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter;
@@ -68,12 +69,15 @@ import org.gradle.internal.hash.ClassLoaderHierarchyHasher;
 import org.gradle.internal.operations.BuildOperationExecutor;
 import org.gradle.internal.scan.config.BuildScanPluginApplied;
 import org.gradle.internal.service.DefaultServiceRegistry;
+import org.gradle.internal.service.scopes.VirtualFileSystemServices;
 import org.gradle.internal.work.AsyncWorkTracker;
 import org.gradle.normalization.internal.InputNormalizationHandlerInternal;
+import org.gradle.util.IncubationLogger;
 
 import java.util.List;
 
 public class ProjectExecutionServices extends DefaultServiceRegistry {
+
     public ProjectExecutionServices(ProjectInternal project) {
         super("Configured project services for '" + project.getPath() + "'", project.getServices());
     }
@@ -94,48 +98,63 @@ public class ProjectExecutionServices extends DefaultServiceRegistry {
         BuildOutputCleanupRegistry buildOutputCleanupRegistry,
         Deleter deleter,
         OutputChangeListener outputChangeListener,
-        TaskInputsListener taskInputsListener
+        TaskInputsListeners taskInputsListeners
     ) {
         return new DefaultEmptySourceTaskSkipper(
             buildOutputCleanupRegistry,
             deleter,
             outputChangeListener,
-            taskInputsListener
+            taskInputsListeners
         );
     }
 
-    TaskExecuter createTaskExecuter(TaskExecutionModeResolver repository,
-                                    BuildCacheController buildCacheController,
-                                    TaskActionListener actionListener,
-                                    OutputChangeListener outputChangeListener,
-                                    ClassLoaderHierarchyHasher classLoaderHierarchyHasher,
-                                    TaskSnapshotter taskSnapshotter,
-                                    FileCollectionFingerprinterRegistry fingerprinterRegistry,
-                                    BuildOperationExecutor buildOperationExecutor,
-                                    AsyncWorkTracker asyncWorkTracker,
-                                    BuildOutputCleanupRegistry cleanupRegistry,
-                                    ExecutionHistoryStore executionHistoryStore,
-                                    OutputFilesRepository outputFilesRepository,
-                                    BuildScanPluginApplied buildScanPlugin,
-                                    FileCollectionFactory fileCollectionFactory,
-                                    PropertyWalker propertyWalker,
-                                    TaskExecutionGraphInternal taskExecutionGraph,
-                                    TaskExecutionListener taskExecutionListener,
-                                    TaskListenerInternal taskListenerInternal,
-                                    TaskCacheabilityResolver taskCacheabilityResolver,
-                                    WorkExecutor<ExecutionRequestContext, CachingResult> workExecutor,
-                                    Deleter deleter,
-                                    ListenerManager listenerManager,
-                                    ReservedFileSystemLocationRegistry reservedFileSystemLocationRegistry,
-                                    EmptySourceTaskSkipper emptySourceTaskSkipper
+    TaskExecuter createTaskExecuter(
+        AsyncWorkTracker asyncWorkTracker,
+        BuildCacheController buildCacheController,
+        BuildOperationExecutor buildOperationExecutor,
+        BuildOutputCleanupRegistry cleanupRegistry,
+        BuildScanPluginApplied buildScanPlugin,
+        ClassLoaderHierarchyHasher classLoaderHierarchyHasher,
+        Deleter deleter,
+        EmptySourceTaskSkipper emptySourceTaskSkipper,
+        ExecutionHistoryStore executionHistoryStore,
+        FileCollectionFactory fileCollectionFactory,
+        FileCollectionFingerprinterRegistry fingerprinterRegistry,
+        FileOperations fileOperations,
+        ListenerManager listenerManager,
+        OutputChangeListener outputChangeListener,
+        OutputFilesRepository outputFilesRepository,
+        PropertyWalker propertyWalker,
+        ReservedFileSystemLocationRegistry reservedFileSystemLocationRegistry,
+        StartParameter startParameter,
+        TaskActionListener actionListener,
+        TaskCacheabilityResolver taskCacheabilityResolver,
+        TaskExecutionGraphInternal taskExecutionGraph,
+        TaskExecutionListener taskExecutionListener,
+        TaskExecutionModeResolver repository,
+        TaskListenerInternal taskListenerInternal,
+        TaskSnapshotter taskSnapshotter,
+        WorkExecutor<ExecutionRequestContext, CachingResult> workExecutor
     ) {
 
-        boolean buildCacheEnabled = buildCacheController.isEnabled();
-        boolean scanPluginApplied = buildScanPlugin.isBuildScanPluginApplied();
+        ExecuteActionsTaskExecuter.VfsInvalidationStrategy vfsInvalidationStrategy = VirtualFileSystemServices.isPartialInvalidationEnabled(startParameter.getSystemPropertiesArgs())
+            ? ExecuteActionsTaskExecuter.VfsInvalidationStrategy.PARTIAL
+            : ExecuteActionsTaskExecuter.VfsInvalidationStrategy.COMPLETE;
 
+        // TODO: The incubation message should be printed in VirtualFileSystemServices.
+        //   The problem is that `RootBuildLifecycleListener.afterStart` is called to early to have the system properties from gradle.properties available
+        //   We log the message now here as a workaround.
+        if (vfsInvalidationStrategy == ExecuteActionsTaskExecuter.VfsInvalidationStrategy.PARTIAL && !VirtualFileSystemServices.isRetentionEnabled(startParameter.getSystemPropertiesArgs())) {
+            IncubationLogger.incubatingFeatureUsed("Partial virtual file system invalidation");
+        }
         TaskExecuter executer = new ExecuteActionsTaskExecuter(
-            buildCacheEnabled,
-            scanPluginApplied,
+            buildCacheController.isEnabled()
+                ? ExecuteActionsTaskExecuter.BuildCacheState.ENABLED
+                : ExecuteActionsTaskExecuter.BuildCacheState.DISABLED,
+            buildScanPlugin.isBuildScanPluginApplied()
+                ? ExecuteActionsTaskExecuter.ScanPluginState.APPLIED
+                : ExecuteActionsTaskExecuter.ScanPluginState.NOT_APPLIED,
+            vfsInvalidationStrategy,
             taskSnapshotter,
             executionHistoryStore,
             buildOperationExecutor,
@@ -148,7 +167,8 @@ public class ProjectExecutionServices extends DefaultServiceRegistry {
             listenerManager,
             reservedFileSystemLocationRegistry,
             emptySourceTaskSkipper,
-            fileCollectionFactory
+            fileCollectionFactory,
+            fileOperations
         );
         executer = new CleanupStaleOutputsExecuter(
             buildOperationExecutor,

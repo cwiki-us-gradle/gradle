@@ -14,15 +14,13 @@
  * limitations under the License.
  */
 
-import org.gradle.kotlin.dsl.plugins.dsl.KotlinDslPlugin
-
-import java.io.File
-import java.util.Properties
+import java.util.*
+import org.gradle.internal.os.OperatingSystem
 
 plugins {
     `java`
     `kotlin-dsl` apply false
-    id("org.gradle.kotlin-dsl.ktlint-convention") version "0.3.0" apply false
+    id("org.gradle.kotlin-dsl.ktlint-convention") version "0.4.1" apply false
 }
 
 subprojects {
@@ -44,12 +42,13 @@ subprojects {
         }
 
         dependencies {
+            "api"(platform(project(":buildPlatform")))
             implementation(gradleApi())
         }
 
         afterEvaluate {
-            if (tasks.withType<ValidateTaskProperties>().isEmpty()) {
-                val validateTaskProperties by tasks.registering(ValidateTaskProperties::class) {
+            if (tasks.withType<ValidatePlugins>().isEmpty()) {
+                val validatePlugins by tasks.registering(ValidatePlugins::class) {
                     outputFile.set(project.reporting.baseDirectory.file("task-properties/report.txt"))
 
                     val mainSourceSet = project.sourceSets.main.get()
@@ -57,18 +56,17 @@ subprojects {
                     dependsOn(mainSourceSet.output)
                     classpath.setFrom(mainSourceSet.runtimeClasspath)
                 }
-                tasks.check { dependsOn(validateTaskProperties) }
+                tasks.check { dependsOn(validatePlugins) }
             }
         }
 
-        tasks.withType<ValidateTaskProperties> {
-            failOnWarning = true
-            enableStricterValidation = true
+        tasks.withType<ValidatePlugins> {
+            failOnWarning.set(true)
+            enableStricterValidation.set(true)
         }
 
         apply(from = "../../../gradle/shared-with-buildSrc/code-quality-configuration.gradle.kts")
     }
-    apply(plugin = "eclipse")
 }
 
 allprojects {
@@ -76,15 +74,31 @@ allprojects {
         maven {
             name = "Gradle libs"
             url = uri("https://repo.gradle.org/gradle/libs")
+            mavenContent {
+                // This repository contains an older version which has been overwritten in Central
+                excludeModule("com.google.j2objc", "j2objc-annotations")
+            }
         }
         gradlePluginPortal()
         maven {
             name = "Gradle snapshot libs"
             url = uri("https://repo.gradle.org/gradle/libs-snapshots")
+            mavenContent {
+                // This repository contains an older version which has been overwritten in Central
+                excludeModule("com.google.j2objc", "j2objc-annotations")
+            }
+        }
+        maven {
+            name = "Gradle Enterprise Gradle plugin RC"
+            url = uri("https://repo.gradle.org/gradle/enterprise-libs-release-candidates-local")
         }
         maven {
             name = "kotlinx"
             url = uri("https://dl.bintray.com/kotlin/kotlinx")
+        }
+        maven {
+            name = "kotlin-dev"
+            url = uri("https://dl.bintray.com/kotlin/kotlin-dev")
         }
         maven {
             name = "kotlin-eap"
@@ -95,7 +109,9 @@ allprojects {
 
 dependencies {
     subprojects.forEach {
-        runtimeOnly(project(it.path))
+        if (it.name != "buildPlatform") {
+            runtimeOnly(project(it.path))
+        }
     }
 }
 
@@ -119,13 +135,22 @@ val isSkipBuildSrcVerification: Boolean =
 
 if (isSkipBuildSrcVerification) {
     allprojects {
-        tasks.matching { it.group == LifecycleBasePlugin.VERIFICATION_GROUP }.configureEach {
-            enabled = false
+        afterEvaluate {
+            plugins.withId("lifecycle-base") {
+                tasks.named("check") {
+                    setDependsOn(listOf("assemble"))
+                }
+            }
         }
     }
 }
 
 if (isCiServer) {
+    println("Current machine has ${Runtime.getRuntime().availableProcessors()} CPU cores")
+
+    if (OperatingSystem.current().isWindows) {
+        require(Runtime.getRuntime().availableProcessors() >= 6) { "Windows CI machines must have at least 6 CPU cores!" }
+    }
     gradle.buildFinished {
         allprojects.forEach { project ->
             project.tasks.all {
@@ -161,9 +186,11 @@ fun readProperties(propertiesFile: File) = Properties().apply {
 }
 
 val checkSameDaemonArgs by tasks.registering {
+    val buildSrcPropertiesFile = project.rootDir.resolve("gradle.properties")
+    val rootPropertiesFile = project.rootDir.resolve("../gradle.properties")
     doLast {
-        val buildSrcProperties = readProperties(File(project.rootDir, "gradle.properties"))
-        val rootProperties = readProperties(File(project.rootDir, "../gradle.properties"))
+        val buildSrcProperties = readProperties(buildSrcPropertiesFile)
+        val rootProperties = readProperties(rootPropertiesFile)
         val jvmArgs = listOf(buildSrcProperties, rootProperties).map { it.getProperty("org.gradle.jvmargs") }.toSet()
         if (jvmArgs.size > 1) {
             throw GradleException("gradle.properties and buildSrc/gradle.properties have different org.gradle.jvmargs " +
@@ -176,6 +203,7 @@ val checkSameDaemonArgs by tasks.registering {
 tasks.build { dependsOn(checkSameDaemonArgs) }
 
 fun Project.applyGroovyProjectConventions() {
+    apply(plugin = "java-gradle-plugin")
     apply(plugin = "groovy")
 
     dependencies {
@@ -190,6 +218,7 @@ fun Project.applyGroovyProjectConventions() {
     tasks.withType<GroovyCompile>().configureEach {
         groovyOptions.apply {
             encoding = "utf-8"
+            forkOptions.jvmArgs?.add("-XX:+HeapDumpOnOutOfMemoryError")
         }
         options.apply {
             isFork = true

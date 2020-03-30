@@ -81,7 +81,7 @@ public class MavenPomFileGenerator {
             int idx = builder.indexOf("<modelVersion");
             builder.insert(idx, xmlComments(MetaDataParser.GRADLE_METADATA_MARKER_COMMENT_LINES)
                     + "  "
-                    + xmlComment(MetaDataParser.GRADLE_METADATA_MARKER)
+                    + xmlComment(MetaDataParser.GRADLE_6_METADATA_MARKER)
                     + "  ");
         }
     };
@@ -349,7 +349,10 @@ public class MavenPomFileGenerator {
         if (type != null) {
             mavenDependency.setType(type);
         }
-        mavenDependency.setScope(scope);
+        // Only publish the import scope, others have too different meanings than what Gradle expresses
+        if ("import".equals(scope)) {
+            mavenDependency.setScope(scope);
+        }
 
         DependencyManagement dependencyManagement = model.getDependencyManagement();
         if (dependencyManagement == null) {

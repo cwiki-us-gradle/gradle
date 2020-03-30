@@ -17,6 +17,7 @@
 package org.gradle.api.plugins;
 
 import org.gradle.api.Action;
+import org.gradle.api.Incubating;
 import org.gradle.api.NamedDomainObjectContainer;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
@@ -50,12 +51,10 @@ import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.bundling.Jar;
-import org.gradle.api.tasks.javadoc.Javadoc;
 import org.gradle.api.tasks.testing.Test;
 import org.gradle.internal.cleanup.BuildOutputCleanupRegistry;
 import org.gradle.internal.deprecation.DeprecatableConfiguration;
 import org.gradle.language.jvm.tasks.ProcessResources;
-import org.gradle.util.DeprecationLogger;
 
 import javax.inject.Inject;
 import java.io.File;
@@ -68,6 +67,7 @@ import static org.gradle.api.attributes.Bundling.EXTERNAL;
 import static org.gradle.api.attributes.Category.CATEGORY_ATTRIBUTE;
 import static org.gradle.api.attributes.LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE;
 import static org.gradle.api.attributes.Usage.USAGE_ATTRIBUTE;
+import static org.gradle.api.plugins.internal.JvmPluginsHelper.configureJavaDocTask;
 
 /**
  * <p>A {@link Plugin} which compiles and tests Java source, and assembles it into a JAR file.</p>
@@ -190,6 +190,22 @@ public class JavaPlugin implements Plugin<ProjectInternal> {
     public static final String RUNTIME_ELEMENTS_CONFIGURATION_NAME = "runtimeElements";
 
     /**
+     * The name of the javadoc elements configuration.
+     *
+     * @since 6.0
+     */
+    @Incubating
+    public static final String JAVADOC_ELEMENTS_CONFIGURATION_NAME = "javadocElements";
+
+    /**
+     * The name of the sources elements configuration.
+     *
+     * @since 6.0
+     */
+    @Incubating
+    public static final String SOURCES_ELEMENTS_CONFIGURATION_NAME = "sourcesElements";
+
+    /**
      * The name of the compile classpath configuration.
      *
      * @since 3.4
@@ -271,6 +287,11 @@ public class JavaPlugin implements Plugin<ProjectInternal> {
 
     @Override
     public void apply(ProjectInternal project) {
+        if (project.getPluginManager().hasPlugin("java-platform")) {
+            throw new IllegalStateException("The \"java\" or \"java-library\" plugin cannot be applied together with the \"java-platform\" plugin. " +
+                "A project is either a platform or a library but cannot be both at the same time.");
+        }
+
         project.getPluginManager().apply(JavaBasePlugin.class);
 
         JavaPluginConvention javaConvention = project.getConvention().getPlugin(JavaPluginConvention.class);
@@ -280,15 +301,10 @@ public class JavaPlugin implements Plugin<ProjectInternal> {
         configureSourceSets(javaConvention, buildOutputCleanupRegistry);
         configureConfigurations(project, javaConvention);
 
-        configureJavaDoc(javaConvention);
         configureTest(project, javaConvention);
+        configureJavadocTask(project, javaConvention);
         configureArchivesAndComponent(project, javaConvention);
         configureBuild(project);
-
-        if (project.getPluginManager().hasPlugin("java-platform")) {
-            DeprecationLogger.nagUserOfDeprecatedBehaviour("The \"java\" (or \"java-library\") plugin cannot be used together with the \"java-platform\" plugin on a given project. " +
-                "A project is either a platform or a library but cannot be both at the same time.");
-        }
     }
 
     private void configureSourceSets(JavaPluginConvention pluginConvention, final BuildOutputCleanupRegistry buildOutputCleanupRegistry) {
@@ -309,20 +325,6 @@ public class JavaPlugin implements Plugin<ProjectInternal> {
         });
     }
 
-    private void configureJavaDoc(final JavaPluginConvention pluginConvention) {
-        Project project = pluginConvention.getProject();
-        project.getTasks().register(JAVADOC_TASK_NAME, Javadoc.class, new Action<Javadoc>() {
-            @Override
-            public void execute(Javadoc javadoc) {
-                final SourceSet mainSourceSet = pluginConvention.getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME);
-                javadoc.setDescription("Generates Javadoc API documentation for the main source code.");
-                javadoc.setGroup(JavaBasePlugin.DOCUMENTATION_GROUP);
-                javadoc.setClasspath(mainSourceSet.getOutput().plus(mainSourceSet.getCompileClasspath()));
-                javadoc.setSource(mainSourceSet.getAllJava());
-            }
-        });
-    }
-
     private void configureArchivesAndComponent(Project project, final JavaPluginConvention pluginConvention) {
         TaskProvider<Jar> jar = project.getTasks().register(JAR_TASK_NAME, Jar.class, new Action<Jar>() {
             @Override
@@ -332,7 +334,6 @@ public class JavaPlugin implements Plugin<ProjectInternal> {
                 jar.from(pluginConvention.getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME).getOutput());
             }
         });
-        // TODO: Allow this to be added lazily
         PublishArtifact jarArtifact = new LazyPublishArtifact(jar);
         Configuration apiElementConfiguration = project.getConfigurations().getByName(API_ELEMENTS_CONFIGURATION_NAME);
         Configuration runtimeConfiguration = project.getConfigurations().getByName(RUNTIME_CONFIGURATION_NAME);
@@ -347,6 +348,11 @@ public class JavaPlugin implements Plugin<ProjectInternal> {
         addRuntimeVariants(project, runtimeElementsConfiguration, jarArtifact, pluginConvention.getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME), processResources);
 
         registerSoftwareComponents(project);
+    }
+
+    private void configureJavadocTask(ProjectInternal project, JavaPluginConvention pluginConvention) {
+        SourceSet main = pluginConvention.getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME);
+        configureJavaDocTask(null, main, project.getTasks(), project.getExtensions().getByType(JavaPluginExtension.class));
     }
 
     private void registerSoftwareComponents(Project project) {
@@ -420,6 +426,8 @@ public class JavaPlugin implements Plugin<ProjectInternal> {
                         return pluginConvention.getSourceSets().getByName(SourceSet.TEST_SOURCE_SET_NAME).getRuntimeClasspath();
                     }
                 });
+                JavaPluginExtension javaPluginExtension = project.getExtensions().getByType(JavaPluginExtension.class);
+                test.getModularClasspathHandling().getInferModulePath().convention(javaPluginExtension.getModularClasspathHandling().getInferModulePath());
             }
         });
 

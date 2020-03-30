@@ -25,10 +25,8 @@ import org.gradle.test.fixtures.maven.MavenFileRepository
 import org.gradle.test.fixtures.server.http.MavenHttpRepository
 import org.gradle.test.fixtures.server.http.RepositoryHttpServer
 import org.gradle.tooling.ProjectConnection
-import org.gradle.util.Requires
+import org.gradle.util.GradleVersion
 import org.junit.Rule
-
-import static org.gradle.util.TestPrecondition.KOTLIN_SCRIPT
 
 @IntegrationTestTimeout(300)
 @TargetGradleVersion('>=4.0 <5.1')
@@ -36,6 +34,10 @@ class ProjectConfigurationChildrenProgressCrossVersionSpec extends ToolingApiSpe
 
     @Rule
     public final RepositoryHttpServer server = new RepositoryHttpServer(temporaryFolder, targetDist.version.version)
+
+    private static String expectedDisplayName(String name, String extension, String version) {
+        getTargetVersion() < GradleVersion.version("6.0") ? "$name.$extension" : "$name-$version.$extension"
+    }
 
     def "generates events for worker actions executed in-process and forked"() {
         given:
@@ -45,13 +47,13 @@ class ProjectConfigurationChildrenProgressCrossVersionSpec extends ToolingApiSpe
             import java.net.URLClassLoader
             import java.net.URL
             import org.gradle.internal.classloader.ClasspathUtil
-            
+
             class TestRunnable implements Runnable {
                 @Override public void run() {
                     // Do nothing
                 }
             }
-            
+
             // Set up a simpler classloader that only contains what TestRunnable needs.
             // This can be removed when the issues with long classpaths have been resolved.
             // See https://github.com/gradle/gradle-private/issues/1486
@@ -60,9 +62,9 @@ class ProjectConfigurationChildrenProgressCrossVersionSpec extends ToolingApiSpe
                     ["scripts-remapped", "groovy-all"].any { url.toString().contains(it) }
                 } as URL[]
             )
-            
+
             def testRunnable = cl.loadClass("TestRunnable")
-            
+
             task runInProcess {
                 doLast {
                     def workerExecutor = services.get(WorkerExecutor)
@@ -239,7 +241,7 @@ class ProjectConfigurationChildrenProgressCrossVersionSpec extends ToolingApiSpe
             repositories {
                maven { url '${mavenHttpRepo.uri}' }
             }
-            
+
             dependencies {
                 implementation project(':a')
                 implementation "group:projectB:1.0"
@@ -274,23 +276,23 @@ class ProjectConfigurationChildrenProgressCrossVersionSpec extends ToolingApiSpe
 
         applyBuildScript.child("Resolve dependencies of :compileClasspath").with {
             it.child "Configure project :a"
-            it.descendant "Download http://localhost:${server.port}${projectB.pomPath}"
-            it.descendant "Download http://localhost:${server.port}/repo/group/projectC/maven-metadata.xml"
-            it.descendant "Download http://localhost:${server.port}${projectC.pomPath}"
-            it.descendant "Download http://localhost:${server.port}${projectD.metaDataPath}"
-            it.descendant "Download http://localhost:${server.port}${projectD.pomPath}"
+            it.descendant "Download ${server.uri}${projectB.pomPath}"
+            it.descendant "Download ${server.uri}/repo/group/projectC/maven-metadata.xml"
+            it.descendant "Download ${server.uri}${projectC.pomPath}"
+            it.descendant "Download ${server.uri}${projectD.metaDataPath}"
+            it.descendant "Download ${server.uri}${projectD.pomPath}"
         }
 
         def resolveArtifacts = applyBuildScript.child("Resolve files of :compileClasspath")
 
-        resolveArtifacts.child("Resolve projectB.jar (group:projectB:1.0)")
-            .child "Download http://localhost:${server.port}${projectB.artifactPath}"
+        resolveArtifacts.child("Resolve ${expectedDisplayName('projectB', 'jar', '1.0')} (group:projectB:1.0)")
+            .child "Download ${server.uri}${projectB.artifactPath}"
 
-        resolveArtifacts.child("Resolve projectC.jar (group:projectC:1.5)")
-            .child "Download http://localhost:${server.port}${projectC.artifactPath}"
+        resolveArtifacts.child("Resolve ${expectedDisplayName('projectC', 'jar', '1.5')} (group:projectC:1.5)")
+            .child "Download ${server.uri}${projectC.artifactPath}"
 
-        resolveArtifacts.child("Resolve projectD.jar (group:projectD:2.0-SNAPSHOT)", "Resolve projectD.jar (group:projectD:2.0-SNAPSHOT:${projectD.uniqueSnapshotVersion})")
-            .child "Download http://localhost:${server.port}${projectD.artifactPath}"
+        resolveArtifacts.child("Resolve ${expectedDisplayName('projectD', 'jar', '2.0-SNAPSHOT')} (group:projectD:2.0-SNAPSHOT)", "Resolve ${expectedDisplayName('projectD', 'jar', '2.0-SNAPSHOT')} (group:projectD:2.0-SNAPSHOT:${projectD.uniqueSnapshotVersion})")
+            .child "Download ${server.uri}${projectD.artifactPath}"
     }
 
     def "generates events for interleaved project configuration and dependency resolution"() {
@@ -340,8 +342,6 @@ class ProjectConfigurationChildrenProgressCrossVersionSpec extends ToolingApiSpe
         resolveCompileA.child("Configure project :b")
     }
 
-
-    @Requires([KOTLIN_SCRIPT])
     def "generates events for nested script plugin applications of different types"() {
         given:
         def scriptPluginGroovy1 = file('scriptPluginGroovy1.gradle')

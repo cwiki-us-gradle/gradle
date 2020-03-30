@@ -21,13 +21,15 @@ import org.gradle.api.Task
 import org.gradle.api.internal.AbstractTask
 import org.gradle.api.internal.ConventionTask
 import org.gradle.api.internal.TaskInternal
+
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 
 
 internal
-fun relevantStateOf(taskType: Class<*>): Sequence<Field> =
+fun relevantStateOf(taskType: Class<*>): List<Field> =
     relevantTypeHierarchyOf(taskType)
+        .toList()
         .flatMap(Class<*>::relevantFields)
         .onEach(Field::makeAccessible)
 
@@ -60,17 +62,16 @@ val irrelevantDeclaringClasses = setOf(
 
 
 private
-val Class<*>.relevantFields: Sequence<Field>
-    get() = declaredFields.asSequence()
+val Class<*>.relevantFields: List<Field>
+    get() = declaredFields.toList()
         .filterNot { field ->
             Modifier.isStatic(field.modifiers)
                 || Modifier.isTransient(field.modifiers)
-                // Ignore a lambda field for now
-                || (field.name == "mFolderFilter" && field.declaringClass.name == "com.android.ide.common.resources.DataSet")
         }
         .filter { field ->
             field.declaringClass != AbstractTask::class.java || field.name == "actions"
         }
+        .sortedBy { it.name }
 
 
 internal

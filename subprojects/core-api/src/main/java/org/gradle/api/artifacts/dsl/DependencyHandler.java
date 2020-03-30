@@ -86,7 +86,7 @@ import java.util.Map;
  * <li>Avoiding transitive dependencies for certain dependency.</li>
  * </ul>
  *
- * <pre class='autoTested'>
+ * <pre class='autoTestedWithDeprecations'>
  * apply plugin: 'java' //so that I can declare 'implementation' dependencies
  *
  * dependencies {
@@ -445,7 +445,7 @@ public interface DependencyHandler extends ExtensionAware {
     void registerTransform(Action<? super VariantTransform> registrationAction);
 
     /**
-     * Registers an <a href="https://docs.gradle.org/current/userguide/dependency_management_attribute_based_matching.html#sec:abm_artifact_transforms">artifact transform</a>.
+     * Registers an <a href="https://docs.gradle.org/current/userguide/artifact_transforms.html">artifact transform</a>.
      *
      * <p>
      *     The registration action needs to specify the {@code from} and {@code to} attributes.
@@ -520,6 +520,7 @@ public interface DependencyHandler extends ExtensionAware {
      *
      * @since 5.0
      */
+    @Incubating
     Dependency enforcedPlatform(Object notation);
 
     /**
@@ -533,6 +534,7 @@ public interface DependencyHandler extends ExtensionAware {
      *
      * @since 5.0
      */
+    @Incubating
     Dependency enforcedPlatform(Object notation, Action<? super Dependency> configureAction);
 
     /**

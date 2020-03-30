@@ -17,6 +17,7 @@
 package org.gradle.integtests.resolve
 
 import org.gradle.integtests.fixtures.AbstractHttpDependencyResolutionTest
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.test.fixtures.keystore.TestKeyStore
 import org.gradle.test.fixtures.maven.MavenFileRepository
@@ -145,7 +146,7 @@ class DependencyUnresolvedModuleIntegrationTest extends AbstractHttpDependencyRe
         buildFile << """
             ${mavenRepository(mavenHttpRepo)}
             ${customConfigDependencyAssignment(moduleA)}
-            
+
             configurations {
                 first
                 second
@@ -156,7 +157,7 @@ class DependencyUnresolvedModuleIntegrationTest extends AbstractHttpDependencyRe
                 second '${mavenModuleCoordinates(moduleB)}'
                 third '${mavenModuleCoordinates(moduleC)}'
             }
-            
+
             task resolve {
                 doLast {
                     def filesA = configurations.first.resolvedConfiguration.lenientConfiguration.files*.name
@@ -179,6 +180,7 @@ class DependencyUnresolvedModuleIntegrationTest extends AbstractHttpDependencyRe
         output.contains "Resolved: [a-1.0.jar] [] []"
     }
 
+    @ToBeFixedForInstantExecution
     def "repository is blacklisted only for the current build execution"() {
         given:
 
@@ -336,7 +338,7 @@ class DependencyUnresolvedModuleIntegrationTest extends AbstractHttpDependencyRe
             configurations {
                 deps
             }
-            
+
             dependencies {
                 deps ${modules.collect { "'${it}'" }.join(', ')}
             }
@@ -401,20 +403,20 @@ class DependencyUnresolvedModuleIntegrationTest extends AbstractHttpDependencyRe
     }
 
     private void assertDependencyArtifactReadTimeout(MavenModule module) {
-        failure.assertHasCause("Could not download ${module.artifactId}.jar (${mavenModuleCoordinates(module)})")
+        failure.assertHasCause("Could not download ${module.artifactFile.name} (${mavenModuleCoordinates(module)})")
         failure.assertHasCause("Could not get resource '${mavenHttpRepo.uri.toString()}/${mavenModuleRepositoryPath(module)}.jar'.")
         failure.assertHasCause("Could not GET '${mavenHttpRepo.uri.toString()}/${mavenModuleRepositoryPath(module)}.jar'.")
         failure.assertHasCause("Read timed out")
     }
 
     private void assertDependencyArtifactInternalServerError(MavenModule module) {
-        failure.assertHasCause("Could not download ${module.artifactId}.jar (${mavenModuleCoordinates(module)})")
+        failure.assertHasCause("Could not download ${module.artifactFile.name} (${mavenModuleCoordinates(module)})")
         failure.assertHasCause("Could not get resource '${mavenHttpRepo.uri.toString()}/${mavenModuleRepositoryPath(module)}.jar'.")
         failure.assertHasCause("Could not GET '${mavenHttpRepo.uri.toString()}/${mavenModuleRepositoryPath(module)}.jar'. Received status code 500 from server: broken")
     }
 
     private void assertDependencyArtifactUnauthorizedError(MavenModule module) {
-        failure.assertHasCause("Could not download ${module.artifactId}.jar (${mavenModuleCoordinates(module)})")
+        failure.assertHasCause("Could not download ${module.artifactFile.name} (${mavenModuleCoordinates(module)})")
         failure.assertHasCause("Could not get resource '${mavenHttpRepo.uri.toString()}/${mavenModuleRepositoryPath(module)}.jar'.")
         failure.assertHasCause("Could not GET '${mavenHttpRepo.uri.toString()}/${mavenModuleRepositoryPath(module)}.jar'. Received status code 401 from server: unauthorized")
     }

@@ -22,8 +22,11 @@ import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.ConfigurationContainer;
 import org.gradle.api.artifacts.PublishArtifact;
+import org.gradle.api.attributes.AttributeContainer;
+import org.gradle.api.attributes.Usage;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.internal.artifacts.dsl.LazyPublishArtifact;
+import org.gradle.api.internal.attributes.ImmutableAttributesFactory;
 import org.gradle.api.internal.java.WebApplication;
 import org.gradle.api.internal.plugins.DefaultArtifactPublicationSet;
 import org.gradle.api.model.ObjectFactory;
@@ -46,10 +49,12 @@ public class WarPlugin implements Plugin<Project> {
     public static final String WEB_APP_GROUP = "web application";
 
     private final ObjectFactory objectFactory;
+    private final ImmutableAttributesFactory attributesFactory;
 
     @Inject
-    public WarPlugin(ObjectFactory objectFactory) {
+    public WarPlugin(ObjectFactory objectFactory, ImmutableAttributesFactory attributesFactory) {
         this.objectFactory = objectFactory;
+        this.attributesFactory = attributesFactory;
     }
 
     @Override
@@ -61,29 +66,19 @@ public class WarPlugin implements Plugin<Project> {
         project.getTasks().withType(War.class).configureEach(new Action<War>() {
             @Override
             public void execute(War task) {
-                task.from(new Callable() {
-                    @Override
-                    public Object call() throws Exception {
-                        return pluginConvention.getWebAppDir();
-                    }
+                task.from((Callable) () -> pluginConvention.getWebAppDir());
+                task.dependsOn((Callable) () -> project.getConvention()
+                    .getPlugin(JavaPluginConvention.class)
+                    .getSourceSets()
+                    .getByName(SourceSet.MAIN_SOURCE_SET_NAME)
+                    .getRuntimeClasspath());
+                task.classpath((Callable) () -> {
+                    FileCollection runtimeClasspath = project.getConvention().getPlugin(JavaPluginConvention.class)
+                            .getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME).getRuntimeClasspath();
+                    Configuration providedRuntime = project.getConfigurations().getByName(
+                            PROVIDED_RUNTIME_CONFIGURATION_NAME);
+                    return runtimeClasspath.minus(providedRuntime);
                 });
-                task.dependsOn(new Callable() {
-                    @Override
-                    public Object call() throws Exception {
-                        return project.getConvention().getPlugin(JavaPluginConvention.class).getSourceSets().getByName(
-                                SourceSet.MAIN_SOURCE_SET_NAME).getRuntimeClasspath();
-                    }
-                });
-                task.classpath(new Object[] {new Callable() {
-                    @Override
-                    public Object call() throws Exception {
-                        FileCollection runtimeClasspath = project.getConvention().getPlugin(JavaPluginConvention.class)
-                                .getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME).getRuntimeClasspath();
-                        Configuration providedRuntime = project.getConfigurations().getByName(
-                                PROVIDED_RUNTIME_CONFIGURATION_NAME);
-                        return runtimeClasspath.minus(providedRuntime);
-                    }
-                }});
             }
         });
 
@@ -112,6 +107,8 @@ public class WarPlugin implements Plugin<Project> {
     }
 
     private void configureComponent(Project project, PublishArtifact warArtifact) {
-        project.getComponents().add(objectFactory.newInstance(WebApplication.class, warArtifact, "master"));
+        AttributeContainer attributes = attributesFactory.mutable()
+            .attribute(Usage.USAGE_ATTRIBUTE, objectFactory.named(Usage.class, Usage.JAVA_RUNTIME));
+        project.getComponents().add(objectFactory.newInstance(WebApplication.class, warArtifact, "master", attributes));
     }
 }

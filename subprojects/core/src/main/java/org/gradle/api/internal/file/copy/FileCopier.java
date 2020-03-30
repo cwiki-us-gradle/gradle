@@ -17,10 +17,12 @@ package org.gradle.api.internal.file.copy;
 
 import org.gradle.api.Action;
 import org.gradle.api.file.CopySpec;
-import org.gradle.api.internal.file.FileLookup;
+import org.gradle.api.internal.file.FileCollectionFactory;
 import org.gradle.api.internal.file.FileResolver;
 import org.gradle.api.internal.file.collections.DirectoryFileTreeFactory;
 import org.gradle.api.tasks.WorkResult;
+import org.gradle.api.tasks.util.PatternSet;
+import org.gradle.internal.Factory;
 import org.gradle.internal.file.Deleter;
 import org.gradle.internal.nativeintegration.filesystem.FileSystem;
 import org.gradle.internal.reflect.Instantiator;
@@ -30,29 +32,32 @@ import java.io.File;
 public class FileCopier {
     private final Deleter deleter;
     private final DirectoryFileTreeFactory directoryFileTreeFactory;
-    private final FileLookup fileLookup;
+    private final FileCollectionFactory fileCollectionFactory;
     private final FileResolver fileResolver;
+    private final Factory<PatternSet> patternSetFactory;
     private final FileSystem fileSystem;
     private final Instantiator instantiator;
 
     public FileCopier(
         Deleter deleter,
         DirectoryFileTreeFactory directoryFileTreeFactory,
-        FileLookup fileLookup,
+        FileCollectionFactory fileCollectionFactory,
         FileResolver fileResolver,
+        Factory<PatternSet> patternSetFactory,
         FileSystem fileSystem,
         Instantiator instantiator
     ) {
         this.deleter = deleter;
         this.directoryFileTreeFactory = directoryFileTreeFactory;
-        this.fileLookup = fileLookup;
+        this.fileCollectionFactory = fileCollectionFactory;
         this.fileResolver = fileResolver;
+        this.patternSetFactory = patternSetFactory;
         this.fileSystem = fileSystem;
         this.instantiator = instantiator;
     }
 
     private DestinationRootCopySpec createCopySpec(Action<? super CopySpec> action) {
-        DefaultCopySpec copySpec = new DefaultCopySpec(this.fileResolver, instantiator);
+        DefaultCopySpec copySpec = new DefaultCopySpec(fileCollectionFactory, instantiator, patternSetFactory);
         DestinationRootCopySpec destinationRootCopySpec = new DestinationRootCopySpec(fileResolver, copySpec);
         CopySpec wrapped = instantiator.newInstance(CopySpecWrapper.class, destinationRootCopySpec);
         action.execute(wrapped);
@@ -72,7 +77,7 @@ public class FileCopier {
     }
 
     private FileCopyAction getCopyVisitor(File destination) {
-        return new FileCopyAction(fileLookup.getFileResolver(destination));
+        return new FileCopyAction(fileResolver.newResolver(destination));
     }
 
     private WorkResult doCopy(CopySpecInternal copySpec, CopyAction visitor) {

@@ -34,7 +34,7 @@ dependencies {
     integTestImplementation(project(":launcher"))
     integTestImplementation(library("slf4j_api"))
     integTestImplementation(testLibrary("jetty"))
-    
+
     integTestRuntimeOnly(project(":runtimeApiInfo"))
 }
 
@@ -49,7 +49,7 @@ tasks.integTest {
     }
 }
 
-tasks.register("soakTest", org.gradle.gradlebuild.test.integrationtests.SoakTest::class) {
+tasks.register("soakIntegTest", org.gradle.gradlebuild.test.integrationtests.SoakTest::class) {
     val integTestSourceSet = sourceSets.integTest.get()
     testClassesDirs = integTestSourceSet.output.classesDirs
     classpath = integTestSourceSet.runtimeClasspath

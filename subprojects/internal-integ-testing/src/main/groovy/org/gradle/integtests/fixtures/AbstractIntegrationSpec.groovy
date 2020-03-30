@@ -57,7 +57,7 @@ import static org.gradle.util.Matchers.normalizedLineSeparators
 class AbstractIntegrationSpec extends Specification {
 
     @Rule
-    final TestNameTestDirectoryProvider temporaryFolder = new TestNameTestDirectoryProvider()
+    final TestNameTestDirectoryProvider temporaryFolder = new TestNameTestDirectoryProvider(getClass())
 
     GradleDistribution distribution = new UnderDevelopmentGradleDistribution(getBuildContext())
     GradleExecuter executer = createExecuter()
@@ -76,11 +76,15 @@ class AbstractIntegrationSpec extends Specification {
     private IvyFileRepository ivyRepo
 
     protected int maxHttpRetries = 1
+    protected Integer maxUploadAttempts
 
     def setup() {
         m2.isolateMavenLocalRepo(executer)
         executer.beforeExecute {
             executer.withArgument("-Dorg.gradle.internal.repository.max.tentatives=$maxHttpRetries")
+            if (maxUploadAttempts != null) {
+                executer.withArgument("-Dorg.gradle.internal.network.retry.max.attempts=$maxUploadAttempts")
+            }
         }
     }
 
@@ -96,7 +100,7 @@ class AbstractIntegrationSpec extends Specification {
         testDirectory.file(getDefaultBuildFileName())
     }
 
-    protected TestFile getBuildKotlinFile() {
+    TestFile getBuildKotlinFile() {
         testDirectory.file(getDefaultBuildKotlinFileName())
     }
 
@@ -114,15 +118,23 @@ class AbstractIntegrationSpec extends Specification {
     }
 
     protected TestFile getSettingsFile() {
-        testDirectory.file('settings.gradle')
+        testDirectory.file(settingsFileName)
     }
 
     protected TestFile getSettingsKotlinFile() {
-        testDirectory.file('settings.gradle.kts')
+        testDirectory.file(settingsKotlinFileName)
     }
 
     protected TestFile getPropertiesFile() {
         testDirectory.file('gradle.properties')
+    }
+
+    protected static String getSettingsFileName() {
+        return 'settings.gradle'
+    }
+
+    protected static String getSettingsKotlinFileName() {
+        return 'settings.gradle.kts'
     }
 
     def singleProjectBuild(String projectName, @DelegatesTo(BuildTestFile) Closure cl = {}) {
@@ -405,13 +417,14 @@ class AbstractIntegrationSpec extends Specification {
 
     def createZip(String name, Closure cl) {
         TestFile zipRoot = file("${name}.root")
+        zipRoot.deleteDir()
         TestFile zip = file(name)
         zipRoot.create(cl)
         zipRoot.zipTo(zip)
         return zip
     }
 
-    def createDir(String name, @DelegatesTo(value = TestWorkspaceBuilder.class, strategy = Closure.DELEGATE_FIRST) Closure cl) {
+    def createDir(String name, @DelegatesTo(value = TestWorkspaceBuilder.class, strategy = Closure.DELEGATE_FIRST) Closure cl = {}) {
         TestFile root = file(name)
         root.create(cl)
     }

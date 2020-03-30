@@ -19,6 +19,7 @@ package org.gradle.api.tasks.javadoc;
 import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.UncheckedIOException;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.file.FileSystemOperations;
 import org.gradle.api.file.FileTree;
 import org.gradle.api.internal.ClassPathRegistry;
 import org.gradle.api.internal.project.IsolatedAntBuilder;
@@ -74,9 +75,9 @@ public class Groovydoc extends SourceTask {
 
     private boolean use;
 
-    private boolean noTimestamp;
+    private boolean noTimestamp = true;
 
-    private boolean noVersionStamp;
+    private boolean noVersionStamp = true;
 
     private String windowTitle;
 
@@ -101,13 +102,16 @@ public class Groovydoc extends SourceTask {
         checkGroovyClasspathNonEmpty(getGroovyClasspath().getFiles());
         File destinationDir = getDestinationDir();
         try {
-            getDeleter().ensureEmptyDirectory(destinationDir, true);
+            getDeleter().ensureEmptyDirectory(destinationDir);
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
         }
-        getAntGroovydoc().execute(getSource(), destinationDir, isUse(), isNoTimestamp(), isNoVersionStamp(), getWindowTitle(),
-                getDocTitle(), getHeader(), getFooter(), getPathToOverview(), isIncludePrivate(), getLinks(), getGroovyClasspath(),
-                getClasspath(), getProject());
+        getAntGroovydoc().execute(
+            getSource(), destinationDir, isUse(), isNoTimestamp(), isNoVersionStamp(),
+            getWindowTitle(), getDocTitle(), getHeader(), getFooter(), getPathToOverview(), isIncludePrivate(),
+            getLinks(), getGroovyClasspath(), getClasspath(),
+            getTemporaryDir(), getServices().get(FileSystemOperations.class)
+        );
     }
 
     @Nullable

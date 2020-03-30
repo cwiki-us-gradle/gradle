@@ -27,46 +27,25 @@ import com.google.common.collect.Sets;
 import org.gradle.api.BuildCancelledException;
 import org.gradle.api.CircularReferenceException;
 import org.gradle.api.GradleException;
-import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.NonNullApi;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
-import org.gradle.api.UncheckedIOException;
-import org.gradle.api.execution.SharedResource;
-import org.gradle.api.execution.SharedResourceContainer;
 import org.gradle.api.internal.GradleInternal;
-import org.gradle.api.internal.TaskInternal;
-import org.gradle.api.internal.file.FileCollectionFactory;
-import org.gradle.api.internal.file.FileResolver;
 import org.gradle.api.internal.project.ProjectInternal;
-import org.gradle.api.internal.tasks.TaskPropertyUtils;
-import org.gradle.api.internal.tasks.properties.FileParameterUtils;
-import org.gradle.api.internal.tasks.properties.InputFilePropertyType;
-import org.gradle.api.internal.tasks.properties.OutputFilePropertyType;
-import org.gradle.api.internal.tasks.properties.PropertyValue;
-import org.gradle.api.internal.tasks.properties.PropertyVisitor;
-import org.gradle.api.internal.tasks.properties.PropertyWalker;
 import org.gradle.api.specs.Spec;
 import org.gradle.api.specs.Specs;
-import org.gradle.api.tasks.FileNormalizer;
-import org.gradle.api.tasks.TaskExecutionException;
 import org.gradle.internal.Pair;
 import org.gradle.internal.graph.CachingDirectedGraphWalker;
 import org.gradle.internal.graph.DirectedGraphRenderer;
 import org.gradle.internal.logging.text.StyledTextOutput;
-import org.gradle.internal.resources.ResourceDeadlockException;
 import org.gradle.internal.resources.ResourceLock;
 import org.gradle.internal.resources.ResourceLockState;
-import org.gradle.internal.resources.SharedResourceLeaseRegistry;
-import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.internal.work.WorkerLeaseRegistry;
-import org.gradle.util.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.io.File;
-import java.io.IOException;
 import java.io.StringWriter;
 import java.util.AbstractCollection;
 import java.util.ArrayDeque;
@@ -101,33 +80,23 @@ public class DefaultExecutionPlan implements ExecutionPlan {
 
     private final Set<Node> runningNodes = Sets.newIdentityHashSet();
     private final Set<Node> filteredNodes = Sets.newIdentityHashSet();
-    private final Map<Node, MutationInfo> mutations = Maps.newIdentityHashMap();
-    private final Map<File, String> canonicalizedFileCache = Maps.newIdentityHashMap();
+    private final Set<Node> producedButNotYetConsumed = Sets.newIdentityHashSet();
     private final Map<Pair<Node, Node>, Boolean> reachableCache = Maps.newHashMap();
     private final List<Node> dependenciesWhichRequireMonitoring = Lists.newArrayList();
     private boolean maybeNodesReady;
-    private final SharedResourceLeaseRegistry sharedResourceLeaseRegistry;
-    private final Map<Node, List<ResourceLock>> sharedResourceLocks = Maps.newIdentityHashMap();
-    private final SharedResourceContainer sharedResourceContainer;
     private final GradleInternal gradle;
 
     private boolean buildCancelled;
 
-    public DefaultExecutionPlan(GradleInternal gradle, TaskNodeFactory taskNodeFactory, TaskDependencyResolver dependencyResolver, SharedResourceLeaseRegistry sharedResourceLeaseRegistry) {
+    public DefaultExecutionPlan(GradleInternal gradle, TaskNodeFactory taskNodeFactory, TaskDependencyResolver dependencyResolver) {
         this.gradle = gradle;
         this.taskNodeFactory = taskNodeFactory;
         this.dependencyResolver = dependencyResolver;
-        this.sharedResourceLeaseRegistry = sharedResourceLeaseRegistry;
-        this.sharedResourceContainer = gradle.getSharedResources();
     }
 
     @Override
     public String getDisplayName() {
-        Path path = gradle.findIdentityPath();
-        if (path == null) {
-            return "gradle";
-        }
-        return path.toString();
+        return gradle.getIdentityPath().toString();
     }
 
     @Override
@@ -282,9 +251,6 @@ public class DefaultExecutionPlan implements ExecutionPlan {
         Deque<Node> path = new ArrayDeque<>();
         Map<Node, Integer> planBeforeVisiting = Maps.newHashMap();
 
-        // Register shared resources with the lease registry. Any subsequent changes to SharedRegistryContainer during execution are effectively ignored.
-        registerSharedResources();
-
         while (!nodeQueue.isEmpty()) {
             NodeInVisitingSegment nodeInVisitingSegment = nodeQueue.peekFirst();
             int currentSegment = nodeInVisitingSegment.visitingSegment;
@@ -341,10 +307,8 @@ public class DefaultExecutionPlan implements ExecutionPlan {
                     dependenciesWhichRequireMonitoring.add(node);
                 }
 
-                MutationInfo mutations = getOrCreateMutationsOf(node);
                 for (Node dependency : node.getDependencySuccessors()) {
-                    getOrCreateMutationsOf(dependency).consumingNodes.add(node);
-                    mutations.producingNodes.add(dependency);
+                    dependency.getMutationInfo().consumingNodes.add(node);
                 }
 
                 Project project = node.getProjectToLock();
@@ -352,27 +316,6 @@ public class DefaultExecutionPlan implements ExecutionPlan {
                     projectLocks.put(project, getProjectLock(project));
                 }
 
-                if (node instanceof TaskNode) {
-                    Map<String, Integer> sharedResources = ((TaskNode) node).getTask().getSharedResources();
-                    if (sharedResources != null && !sharedResources.isEmpty()) {
-                        List<ResourceLock> locks = Lists.newArrayList();
-                        for (Map.Entry<String, Integer> entry : sharedResources.entrySet()) {
-                            SharedResource resource = sharedResourceContainer.findByName(entry.getKey());
-
-                            if (resource == null) {
-                                throw new InvalidUserDataException("The task " + node + " requires the shared resource '" + entry.getKey() + "' but no such shared resource exists.");
-                            }
-
-                            if (resource.getLeases() < entry.getValue()) {
-                                throw new InvalidUserDataException("The task " + node + " requires " + entry.getValue() + " leases from shared resource '" + entry.getKey() + "' but maximum leases is " + resource.getLeases());
-                            }
-
-                            locks.add(sharedResourceLeaseRegistry.getResourceLock(entry.getKey(), entry.getValue()));
-                        }
-
-                        sharedResourceLocks.put(node, locks);
-                    }
-                }
                 // Add any finalizers to the queue
                 for (Node finalizer : node.getFinalizers()) {
                     if (!visitingNodes.containsKey(finalizer)) {
@@ -383,20 +326,12 @@ public class DefaultExecutionPlan implements ExecutionPlan {
             }
         }
         executionQueue.clear();
+        dependencyResolver.clear();
         Iterables.addAll(executionQueue, nodeMapping);
         for (Node node : executionQueue) {
             maybeNodesReady |= node.updateAllDependenciesComplete() && node.isReady();
         }
         this.dependenciesWhichRequireMonitoring.addAll(dependenciesWhichRequireMonitoring);
-    }
-
-    private MutationInfo getOrCreateMutationsOf(Node node) {
-        MutationInfo mutations = this.mutations.get(node);
-        if (mutations == null) {
-            mutations = new MutationInfo(node);
-            this.mutations.put(node, mutations);
-        }
-        return mutations;
     }
 
     private void maybeRemoveProcessedShouldRunAfterEdge(Deque<GraphEdge> walkedShouldRunAfterEdges, Node node) {
@@ -536,8 +471,7 @@ public class DefaultExecutionPlan implements ExecutionPlan {
         executionQueue.clear();
         projectLocks.clear();
         failureCollector.clearFailures();
-        mutations.clear();
-        canonicalizedFileCache.clear();
+        producedButNotYetConsumed.clear();
         reachableCache.clear();
         dependenciesWhichRequireMonitoring.clear();
         runningNodes.clear();
@@ -660,111 +594,19 @@ public class DefaultExecutionPlan implements ExecutionPlan {
     }
 
     private boolean tryLockSharedResourceFor(Node node) {
-        List<ResourceLock> locks = sharedResourceLocks.get(node);
-
-        if (locks == null) {
-            return true;
-        } else {
-            return locks.stream().allMatch(ResourceLock::tryLock);
-        }
+        return node.getResourcesToLock().stream().allMatch(ResourceLock::tryLock);
     }
 
     private void unlockSharedResourcesFor(Node node) {
-        sharedResourceLocks.getOrDefault(node, Collections.emptyList()).forEach(ResourceLock::unlock);
-    }
-
-    private void registerSharedResources() {
-        for (SharedResource sharedResource : sharedResourceContainer) {
-            sharedResourceLeaseRegistry.registerSharedResource(sharedResource.getName(), sharedResource.getLeases());
-        }
+        node.getResourcesToLock().forEach(ResourceLock::unlock);
     }
 
     private MutationInfo getResolvedMutationInfo(Node node) {
-        MutationInfo mutations = this.mutations.get(node);
+        MutationInfo mutations = node.getMutationInfo();
         if (!mutations.resolved) {
-            resolveMutations(mutations, node);
+            node.resolveMutations();
         }
         return mutations;
-    }
-
-    private void resolveMutations(final MutationInfo mutations, Node node) {
-        if (node instanceof LocalTaskNode) {
-            final LocalTaskNode taskNode = (LocalTaskNode) node;
-            final TaskInternal task = taskNode.getTask();
-            ProjectInternal project = (ProjectInternal) task.getProject();
-            ServiceRegistry serviceRegistry = project.getServices();
-            final FileResolver resolver = serviceRegistry.get(FileResolver.class);
-            final FileCollectionFactory fileCollectionFactory = serviceRegistry.get(FileCollectionFactory.class);
-            PropertyWalker propertyWalker = serviceRegistry.get(PropertyWalker.class);
-            try {
-                TaskPropertyUtils.visitProperties(propertyWalker, task, new PropertyVisitor.Adapter() {
-                    @Override
-                    public void visitOutputFileProperty(final String propertyName, boolean optional, final PropertyValue value, final OutputFilePropertyType filePropertyType) {
-                        withDeadlockHandling(
-                            taskNode,
-                            "an output",
-                            "output property '" + propertyName + "'",
-                            () -> FileParameterUtils.resolveOutputFilePropertySpecs(
-                                task.toString(),
-                                propertyName,
-                                value,
-                                filePropertyType,
-                                fileCollectionFactory,
-                                outputFilePropertySpec -> mutations.outputPaths.addAll(canonicalizedPaths(canonicalizedFileCache, outputFilePropertySpec.getPropertyFiles()))
-                            )
-                        );
-                        mutations.hasOutputs = true;
-                    }
-
-                    @Override
-                    public void visitLocalStateProperty(final Object value) {
-                        withDeadlockHandling(
-                            taskNode,
-                            "a local state property", "local state properties",
-                            () -> mutations.outputPaths.addAll(canonicalizedPaths(canonicalizedFileCache, resolver.resolveFiles(value))));
-                        mutations.hasLocalState = true;
-                    }
-
-                    @Override
-                    public void visitDestroyableProperty(final Object value) {
-                        withDeadlockHandling(
-                            taskNode,
-                            "a destroyable",
-                            "destroyables",
-                            () -> mutations.destroyablePaths.addAll(canonicalizedPaths(canonicalizedFileCache, resolver.resolveFiles(value))));
-                    }
-
-                    @Override
-                    public void visitInputFileProperty(String propertyName, boolean optional, boolean skipWhenEmpty, boolean incremental, @Nullable Class<? extends FileNormalizer> fileNormalizer, PropertyValue value, InputFilePropertyType filePropertyType) {
-                        mutations.hasFileInputs = true;
-                    }
-                });
-            } catch (Exception e) {
-                throw new TaskExecutionException(task, e);
-            }
-
-            mutations.resolved = true;
-
-            if (!mutations.destroyablePaths.isEmpty()) {
-                if (mutations.hasOutputs) {
-                    throw new IllegalStateException("Task " + taskNode + " has both outputs and destroyables defined.  A task can define either outputs or destroyables, but not both.");
-                }
-                if (mutations.hasFileInputs) {
-                    throw new IllegalStateException("Task " + taskNode + " has both inputs and destroyables defined.  A task can define either inputs or destroyables, but not both.");
-                }
-                if (mutations.hasLocalState) {
-                    throw new IllegalStateException("Task " + taskNode + " has both local state and destroyables defined.  A task can define either local state or destroyables, but not both.");
-                }
-            }
-        }
-    }
-
-    private void withDeadlockHandling(TaskNode task, String singular, String description, Runnable runnable) {
-        try {
-            runnable.run();
-        } catch (ResourceDeadlockException e) {
-            throw new IllegalStateException(String.format("A deadlock was detected while resolving the %s for task '%s'. This can be caused, for instance, by %s property causing dependency resolution.", description, task, singular), e);
-        }
     }
 
     private boolean allProjectsLocked() {
@@ -790,31 +632,10 @@ public class DefaultExecutionPlan implements ExecutionPlan {
         return !doesDestroyNotYetConsumedOutputOfAnotherNode(node, candidateNodeDestroyables);
     }
 
-    private static ImmutableSet<String> canonicalizedPaths(final Map<File, String> cache, Iterable<File> files) {
-        ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-        for (File file : files) {
-            builder.add(canonicalizePath(file, cache));
-        }
-        return builder.build();
-    }
-
-    private static String canonicalizePath(File file, Map<File, String> cache) {
-        try {
-            String path = cache.get(file);
-            if (path == null) {
-                path = file.getCanonicalPath();
-                cache.put(file, path);
-            }
-            return path;
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
     private boolean hasNodeWithOverlappingMutations(Set<String> candidateMutationPaths) {
         if (!candidateMutationPaths.isEmpty()) {
             for (Node runningNode : runningNodes) {
-                MutationInfo runningMutations = mutations.get(runningNode);
+                MutationInfo runningMutations = runningNode.getMutationInfo();
                 Iterable<String> runningMutationPaths = Iterables.concat(runningMutations.outputPaths, runningMutations.destroyablePaths);
                 if (hasOverlap(candidateMutationPaths, runningMutationPaths)) {
                     return true;
@@ -826,20 +647,14 @@ public class DefaultExecutionPlan implements ExecutionPlan {
 
     private boolean doesDestroyNotYetConsumedOutputOfAnotherNode(Node destroyer, Set<String> destroyablePaths) {
         if (!destroyablePaths.isEmpty()) {
-            for (MutationInfo producingNode : mutations.values()) {
-                if (!producingNode.node.isComplete()) {
-                    // We don't care about producing nodes that haven't finished yet
-                    continue;
-                }
-                if (producingNode.consumingNodes.isEmpty()) {
-                    // We don't care about nodes whose output is not consumed by anyone anymore
-                    continue;
-                }
-                if (!hasOverlap(destroyablePaths, producingNode.outputPaths)) {
+            for (Node producingNode : producedButNotYetConsumed) {
+                MutationInfo producingNodeMutations = producingNode.getMutationInfo();
+                assert !producingNodeMutations.consumingNodes.isEmpty();
+                if (!hasOverlap(destroyablePaths, producingNodeMutations.outputPaths)) {
                     // No overlap no cry
                     continue;
                 }
-                for (Node consumer : producingNode.consumingNodes) {
+                for (Node consumer : producingNodeMutations.consumingNodes) {
                     if (doesConsumerDependOnDestroyer(consumer, destroyer)) {
                         // If there's an explicit dependency from consuming node to destroyer,
                         // then we accept that as the will of the user
@@ -921,22 +736,19 @@ public class DefaultExecutionPlan implements ExecutionPlan {
 
     private void recordNodeCompleted(Node node) {
         LOGGER.debug("Node {} completed, executed: {}", node, node.isExecuted());
-        MutationInfo mutations = this.mutations.get(node);
-        for (Node producer : mutations.producingNodes) {
-            MutationInfo producerMutations = this.mutations.get(producer);
-            if (producerMutations.consumingNodes.remove(node) && canRemoveMutation(producerMutations)) {
-                this.mutations.remove(producer);
+        MutationInfo mutations = node.getMutationInfo();
+        for (Node producer : node.getDependencySuccessors()) {
+            MutationInfo producerMutations = producer.getMutationInfo();
+            if (producerMutations.consumingNodes.remove(node) && producerMutations.consumingNodes.isEmpty()) {
+                producedButNotYetConsumed.remove(producer);
             }
         }
 
-        if (canRemoveMutation(mutations)) {
-            this.mutations.remove(node);
+        if (!mutations.consumingNodes.isEmpty() && !mutations.outputPaths.isEmpty()) {
+            producedButNotYetConsumed.add(node);
         }
-        updateAllDependenciesCompleteForPredecessors(node);
-    }
 
-    private static boolean canRemoveMutation(@Nullable MutationInfo mutations) {
-        return mutations != null && mutations.node.isComplete() && mutations.consumingNodes.isEmpty();
+        updateAllDependenciesCompleteForPredecessors(node);
     }
 
     @Override
@@ -1101,22 +913,6 @@ public class DefaultExecutionPlan implements ExecutionPlan {
         private NodeInVisitingSegment(Node node, int visitingSegment) {
             this.node = node;
             this.visitingSegment = visitingSegment;
-        }
-    }
-
-    private static class MutationInfo {
-        final Node node;
-        final Set<Node> consumingNodes = Sets.newHashSet();
-        final Set<Node> producingNodes = Sets.newHashSet();
-        final Set<String> outputPaths = Sets.newHashSet();
-        final Set<String> destroyablePaths = Sets.newHashSet();
-        boolean hasFileInputs;
-        boolean hasOutputs;
-        boolean hasLocalState;
-        boolean resolved;
-
-        MutationInfo(Node node) {
-            this.node = node;
         }
     }
 

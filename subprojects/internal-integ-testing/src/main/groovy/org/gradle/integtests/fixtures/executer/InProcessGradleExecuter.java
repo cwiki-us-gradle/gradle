@@ -28,8 +28,7 @@ import org.gradle.api.execution.TaskExecutionListener;
 import org.gradle.api.internal.StartParameterInternal;
 import org.gradle.api.internal.TaskInternal;
 import org.gradle.api.internal.classpath.ModuleRegistry;
-import org.gradle.api.internal.file.DefaultFileCollectionFactory;
-import org.gradle.api.internal.file.IdentityFileResolver;
+import org.gradle.api.internal.file.FileCollectionFactory;
 import org.gradle.api.internal.file.TestFiles;
 import org.gradle.api.logging.configuration.ConsoleOutput;
 import org.gradle.api.specs.Spec;
@@ -49,6 +48,7 @@ import org.gradle.internal.InternalListener;
 import org.gradle.internal.IoActions;
 import org.gradle.internal.SystemProperties;
 import org.gradle.internal.classpath.ClassPath;
+import org.gradle.internal.deprecation.DeprecationLogger;
 import org.gradle.internal.event.ListenerManager;
 import org.gradle.internal.exceptions.LocationAwareException;
 import org.gradle.internal.hash.HashUtil;
@@ -75,9 +75,9 @@ import org.gradle.tooling.internal.provider.serialization.PayloadClassLoaderRegi
 import org.gradle.tooling.internal.provider.serialization.PayloadSerializer;
 import org.gradle.tooling.internal.provider.serialization.SerializeMap;
 import org.gradle.util.CollectionUtils;
-import org.gradle.util.DeprecationLogger;
 import org.gradle.util.GUtil;
 import org.gradle.util.GradleVersion;
+import org.gradle.util.IncubationLogger;
 import org.hamcrest.Matcher;
 
 import java.io.ByteArrayOutputStream;
@@ -145,6 +145,7 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
     @Override
     public GradleExecuter reset() {
         DeprecationLogger.reset();
+        IncubationLogger.reset();
         return super.reset();
     }
 
@@ -190,9 +191,7 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
         File gradleProperties = new File(getWorkingDir(), "gradle.properties");
         if (gradleProperties.isFile()) {
             Properties properties = GUtil.loadProperties(gradleProperties);
-            if (properties.getProperty("org.gradle.java.home") != null || properties.getProperty("org.gradle.jvmargs") != null) {
-                return true;
-            }
+            return properties.getProperty("org.gradle.java.home") != null || properties.getProperty("org.gradle.jvmargs") != null;
         }
         return false;
     }
@@ -258,6 +257,8 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
             .collect(Collectors.joining(" "));
         File cpJar = new File(getDefaultTmpDir(), "daemon-classpath-manifest-" + HashUtil.createCompactMD5(cpString) + ".jar");
         if (!cpJar.isFile()) {
+            // Make sure the parent exists or the jar creation might fail
+            cpJar.getParentFile().mkdirs();
             Manifest manifest = new Manifest();
             manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
             manifest.getMainAttributes().put(Attributes.Name.CLASS_PATH, cpString);
@@ -325,17 +326,15 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
         Map<String, String> implicitJvmSystemProperties = getImplicitJvmSystemProperties();
         System.getProperties().putAll(implicitJvmSystemProperties);
 
-        // TODO: Fix tests that rely on this being set before we process arguments like this...
-        StartParameterInternal startParameter = new StartParameterInternal();
-        startParameter.setCurrentDir(getWorkingDir());
-
         // TODO: Reuse more of CommandlineActionFactory
         CommandLineParser parser = new CommandLineParser();
         BuildLayoutFactory buildLayoutFactory = new BuildLayoutFactory();
-        DefaultFileCollectionFactory fileCollectionFactory = new DefaultFileCollectionFactory(new IdentityFileResolver(), null);
+        FileCollectionFactory fileCollectionFactory = TestFiles.fileCollectionFactory();
         ParametersConverter parametersConverter = new ParametersConverter(buildLayoutFactory, fileCollectionFactory);
         parametersConverter.configure(parser);
-        final Parameters parameters = new Parameters(startParameter, fileCollectionFactory);
+        final Parameters parameters = new Parameters(fileCollectionFactory);
+        parameters.getStartParameter().setCurrentDir(getWorkingDir());
+        parameters.getLayout().setCurrentDir(getWorkingDir());
         parametersConverter.convert(parser.parse(getAllArgs()), parameters);
 
         BuildActionExecuter<BuildActionParameters> actionExecuter = GLOBAL_SERVICES.get(BuildActionExecuter.class);
@@ -345,6 +344,7 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
 
         try {
             // TODO: Reuse more of BuildActionsFactory
+            StartParameterInternal startParameter = parameters.getStartParameter();
             BuildAction action = new ExecuteBuildAction(startParameter);
             BuildActionParameters buildActionParameters = createBuildActionParameters(startParameter);
             BuildRequestContext buildRequestContext = createBuildRequestContext();
@@ -564,6 +564,16 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
         }
 
         @Override
+        public String getOutputLineThatContains(String text) {
+            return outputResult.getOutputLineThatContains(text);
+        }
+
+        @Override
+        public String getPostBuildOutputLineThatContains(String text) {
+            return outputResult.getPostBuildOutputLineThatContains(text);
+        }
+
+        @Override
         public ExecutionResult assertTasksExecutedInOrder(Object... taskPaths) {
             Set<String> expected = TaskOrderSpecs.exact(taskPaths).getTasks();
             assertTasksExecuted(expected);
@@ -575,7 +585,7 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
         @Override
         public ExecutionResult assertTasksExecuted(Object... taskPaths) {
             Set<String> flattenedTasks = new TreeSet<>(flattenTaskPaths(taskPaths));
-            assertEquals(new TreeSet<>(executedTasks), new TreeSet<>(flattenedTasks));
+            assertEquals(new TreeSet<>(flattenedTasks), new TreeSet<>(executedTasks));
             outputResult.assertTasksExecuted(flattenedTasks);
             return this;
         }
@@ -713,7 +723,7 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
             if (count == 1) {
                 assertFalse(failure instanceof MultipleBuildFailures);
             } else {
-                assertEquals(((MultipleBuildFailures) failure).getCauses().size(), count);
+                assertEquals(count, ((MultipleBuildFailures) failure).getCauses().size());
             }
             return this;
         }

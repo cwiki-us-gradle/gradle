@@ -18,17 +18,17 @@ package org.gradle.play.integtest.samples
 
 import org.gradle.integtests.fixtures.AbstractSampleIntegrationTest
 import org.gradle.integtests.fixtures.Sample
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.executer.GradleHandle
 import org.gradle.play.integtest.fixtures.RunningPlayApp
 import org.gradle.test.fixtures.ConcurrentTestUtil
-import org.gradle.util.Requires
-import org.gradle.util.TestPrecondition
 import spock.lang.IgnoreIf
 
-import static org.gradle.integtests.fixtures.UrlValidator.*
-import static org.gradle.play.integtest.fixtures.PlayMultiVersionRunApplicationIntegrationTest.*
+import static org.gradle.integtests.fixtures.UrlValidator.assertBinaryUrlContent
+import static org.gradle.integtests.fixtures.UrlValidator.assertUrlContent
+import static org.gradle.integtests.fixtures.UrlValidator.assertUrlContentContains
+import static org.gradle.play.integtest.fixtures.PlayMultiVersionRunApplicationIntegrationTest.java9AddJavaSqlModuleArgs
 
-@Requires(TestPrecondition.JDK8_OR_LATER)
 abstract class AbstractPlaySampleIntegrationTest extends AbstractSampleIntegrationTest {
     File initScript
     RunningPlayApp runningPlayApp = new RunningPlayApp(testDirectory)
@@ -56,6 +56,7 @@ abstract class AbstractPlaySampleIntegrationTest extends AbstractSampleIntegrati
     }
 
     @IgnoreIf({ !AbstractPlaySampleIntegrationTest.portForWithBrowserTestIsFree() })
+    @ToBeFixedForInstantExecution
     def "produces usable application" () {
         when:
         executer.usingInitScript(initScript)

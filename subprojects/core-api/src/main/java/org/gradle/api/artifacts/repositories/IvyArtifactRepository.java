@@ -18,6 +18,7 @@ package org.gradle.api.artifacts.repositories;
 import groovy.lang.Closure;
 import org.gradle.api.Action;
 import org.gradle.api.ActionConfiguration;
+import org.gradle.api.Incubating;
 import org.gradle.api.artifacts.ComponentMetadataSupplier;
 
 import java.net.URI;
@@ -35,7 +36,7 @@ import java.net.URI;
  * <p>
  * Repositories of this type are created by the {@link org.gradle.api.artifacts.dsl.RepositoryHandler#ivy(org.gradle.api.Action)} group of methods.
  */
-public interface IvyArtifactRepository extends ArtifactRepository, AuthenticationSupported, MetadataSupplierAware {
+public interface IvyArtifactRepository extends ArtifactRepository, UrlArtifactRepository, AuthenticationSupported, MetadataSupplierAware {
 
     String IVY_ARTIFACT_PATTERN = "[organisation]/[module]/[revision]/[type]s/[artifact](.[ext])";
 
@@ -50,6 +51,7 @@ public interface IvyArtifactRepository extends ArtifactRepository, Authenticatio
      *
      * @return The URL.
      */
+    @Override
     URI getUrl();
 
     /**
@@ -58,6 +60,7 @@ public interface IvyArtifactRepository extends ArtifactRepository, Authenticatio
      * @param url The base URL.
      * @since 4.0
      */
+    @Override
     void setUrl(URI url);
 
     /**
@@ -68,6 +71,7 @@ public interface IvyArtifactRepository extends ArtifactRepository, Authenticatio
      *
      * @param url The base URL.
      */
+    @Override
     void setUrl(Object url);
 
     /**
@@ -266,6 +270,14 @@ public interface IvyArtifactRepository extends ArtifactRepository, Authenticatio
     void metadataSources(Action<? super MetadataSources> configureAction);
 
     /**
+     * Returns the current metadata sources configuration for the repository.
+     *
+     * @since 6.4
+     */
+    @Incubating
+    MetadataSources getMetadataSources();
+
+    /**
      * Allows configuring the sources of metadata for a specific repository.
      *
      * @since 4.5
@@ -298,6 +310,38 @@ public interface IvyArtifactRepository extends ArtifactRepository, Authenticatio
          *
          */
         void ignoreGradleMetadataRedirection();
+
+        /**
+         * Indicates if this repository contains Gradle module metadata.
+         *
+         * @since 6.4
+         */
+        @Incubating
+        boolean isGradleMetadataEnabled();
+
+        /**
+         * Indicates if this repository contains Ivy descriptors.
+         *
+         * @since 6.4
+         */
+        @Incubating
+        boolean isIvyDescriptorEnabled();
+
+        /**
+         * Indicates if this repository only contains artifacts.
+         *
+         * @since 6.4
+         */
+        @Incubating
+        boolean isArtifactEnabled();
+
+        /**
+         * Indicates if this repository ignores Gradle module metadata redirection markers.
+         *
+         * @since 6.4
+         */
+        @Incubating
+        boolean isIgnoreGradleMetadataRedirectionEnabled();
     }
 
 }

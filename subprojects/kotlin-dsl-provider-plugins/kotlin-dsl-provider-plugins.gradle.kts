@@ -40,12 +40,15 @@ dependencies {
     implementation(project(":resources"))
     implementation(project(":plugins"))
     implementation(project(":pluginDevelopment"))
+    implementation(project(":toolingApi"))
 
     implementation(futureKotlin("scripting-compiler-impl-embeddable")) {
         isTransitive = false
     }
-    
+
     implementation(library("slf4j_api"))
+    implementation(library("inject"))
 
     testImplementation(project(":kotlinDslTestFixtures"))
+    testImplementation(testLibrary("mockito_kotlin2"))
 }

@@ -17,7 +17,7 @@
 package org.gradle.api.plugins.quality.pmd
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.util.TestPrecondition
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 
 class PmdPluginDependenciesIntegrationTest extends AbstractIntegrationSpec {
 
@@ -36,6 +36,7 @@ class PmdPluginDependenciesIntegrationTest extends AbstractIntegrationSpec {
         badCode()
     }
 
+    @ToBeFixedForInstantExecution
     def "allows configuring tool dependencies explicitly"() {
         def testDependency = 'net.sourceforge.pmd:pmd:5.1.1'
         expect: //defaults exist and can be inspected
@@ -48,8 +49,6 @@ class PmdPluginDependenciesIntegrationTest extends AbstractIntegrationSpec {
                 //downgrade version:
                 pmd "$testDependency"
             }
-
-            ${!TestPrecondition.FIX_TO_WORK_ON_JAVA9.fulfilled ? "sourceCompatibility = 1.6" : ""}
         """.stripIndent()
 
         then:

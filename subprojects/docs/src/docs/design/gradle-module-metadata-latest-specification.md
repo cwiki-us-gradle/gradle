@@ -6,7 +6,7 @@ Gradle publishes Gradle Module Metadata along with traditional metadata. Gradle 
 
 ## Goal
 
-This document describes version 1.0 of the Gradle module metadata file. A module metadata file describes the contents of a _module_, which is the unit of publication for a particular repository format, such as a module in a Maven repository. This is often called a "package" in many repository formats.
+This document describes version 1.1 of the Gradle module metadata file format. A module metadata file describes the contents of a _module_, which is the unit of publication for a particular repository format, such as a module in a Maven repository. This is often called a "package" in many repository formats.
 
 The module metadata file is a JSON file published alongside the existing repository specific metadata files, such as a Maven POM or Ivy descriptor. It adds additional metadata that can be used by Gradle versions and other tooling that understand the format. This allows the rich Gradle model to be mapped to and "tunnelled" through existing repository formats, while continuing to support existing Gradle versions and tooling that does not understand the format. 
 
@@ -65,6 +65,13 @@ This value must contain an array with zero or more elements. Each element must b
 - `dependencies`: optional. When missing the variant is assumed to have no dependencies. Must not be present when `available-at` is present.
 - `files`: optional. When missing the variant is assumed to have no files. Must not be present when `available-at` is present.
 - `capabilities`: optional. When missing the variant is assumed to declared no specific capability.
+
+The following statements must hold for the variants:
+
+- Variant name must be unique per module
+- Each variant must have at least one attribute
+- Two variants cannot have the same attributes and capabilities
+- If there is at least one dependency in any variant, at least one must carry version information
 
 ### `attributes` value
 
@@ -127,7 +134,8 @@ This value, nested in `variants`, must contain an array with zero or more elemen
 - `reason`: optional. A explanation why the dependency is used. Can typically be used to explain why a specific version is requested.
 - `attributes`: optional. If set, attributes will override the consumer attributes during dependency resolution for this specific dependency.
 - `requestedCapabilities`: optional. If set, declares the capabilities that the dependency must provide in order to be selected. See `capabilities` above for the format.
-- `inheritConstraints`: optional. If set to `true`, all `forSubgraph` version constraints of the target module will be treated as if they were defined on the variant defining this dependency.
+- `endorseStrictVersions`: optional. If set to `true`, all strict versions of the target module will be treated as if they were defined on the variant defining this dependency.
+- `thirdPartyCompatibility`: optional. Includes additional information to be used if the dependency points at a module that did **not** publish Gradle module metadata.
 
 #### `version` value
 
@@ -136,7 +144,6 @@ This value, nested in elements of the `dependencies` or `dependencyConstraints` 
 - `prefers`: optional. The preferred version for this dependency.
 - `strictly`: optional. A strictly enforced version requirement for this dependency.
 - `rejects`: optional. An array of rejected versions for this dependency.
-- `forSubgraph`: optional. If set to `true`, the version constraint applies for each dependency to the corresponding module in the subgraph originating from the containing variant.
 
 #### `excludes` value
 
@@ -167,13 +174,22 @@ This value, nested in `variants`, must contain an array with zero or more elemen
 - `url`: The location of the file. A string. In version 1.0, this must be a path relative to the module.
 - `size`: The size of the file in bytes. A number.
 - `sha1`: The SHA1 hash of the file content. A hex string.
+- `sha256`: The SHA-256 hash of the file content. A hex string.
+- `sha512`: The SHA-512 hash of the file content. A hex string.
 - `md5`: The MD5 hash of the file content. A hex string.
+
+### `thirdPartyCompatibility` value
+
+This value, nested in elements of the `dependencies` node, includes additional information to be used if the dependency points at a module that did **not** publish Gradle module metadata.
+
+- `artifactSelector`: Information to select a specific artifact (identified by `name`, `type`, `extension`, and `classifier`) of the dependency that is not mentioned in the dependency's metadata. These are typically artifacts published with Maven that contain a _classifier_.
 
 ### Changelog
 
 #### 1.1
 
-- Adds support for _subgraph version constraints_: `version { forSubgraph = true }`
+- Adds support to _endorse strict versions_ defined in another module: `{ "group": "some.group", "module": "other-lib", "version": { "requires": "3.4" }, "endorseStrictVersions": "true"`
+- Adds `thirdPartyCompatibility` features for better compatibility with maven and ivy metadata
 
 #### 1.0
 
@@ -253,7 +269,7 @@ This value, nested in `variants`, must contain an array with zero or more elemen
                 { 
                     "group": "some.group", 
                     "module": "other-lib-2", 
-                    "version": { "requires": "1.0", "forSubgraph": true } 
+                    "version": { "requires": "1.0" } 
                 }
             ]
         }

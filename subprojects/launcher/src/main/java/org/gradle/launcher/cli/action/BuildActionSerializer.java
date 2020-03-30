@@ -17,6 +17,7 @@
 package org.gradle.launcher.cli.action;
 
 import org.gradle.TaskExecutionRequest;
+import org.gradle.api.artifacts.verification.DependencyVerificationMode;
 import org.gradle.api.internal.StartParameterInternal;
 import org.gradle.api.logging.LogLevel;
 import org.gradle.api.logging.configuration.ConsoleOutput;
@@ -94,8 +95,8 @@ public class BuildActionSerializer {
             nullableFileSerializer.write(encoder, startParameter.getGradleHomeDir());
             nullableFileSerializer.write(encoder, startParameter.getProjectCacheDir());
             fileListSerializer.write(encoder, startParameter.getIncludedBuilds());
-            encoder.writeBoolean(startParameter.isUseEmptySettings());
-            encoder.writeBoolean(startParameter.isSearchUpwards());
+            encoder.writeBoolean(startParameter.isUseEmptySettingsWithoutDeprecationWarning());
+            encoder.writeBoolean(startParameter.isSearchUpwardsWithoutDeprecationWarning());
 
             // Other stuff
             NO_NULL_STRING_MAP_SERIALIZER.write(encoder, startParameter.getProjectProperties());
@@ -118,6 +119,10 @@ public class BuildActionSerializer {
             encoder.writeBoolean(startParameter.isBuildScan());
             encoder.writeBoolean(startParameter.isNoBuildScan());
             encoder.writeBoolean(startParameter.isWriteDependencyLocks());
+            stringListSerializer.write(encoder, startParameter.getWriteDependencyVerifications());
+            encoder.writeString(startParameter.getDependencyVerificationMode().name());
+            encoder.writeBoolean(startParameter.isRefreshKeys());
+            encoder.writeBoolean(startParameter.isExportKeys());
 
             // Deprecations (these should just be rendered on the client instead of being sent to the daemon to send them back again)
             stringSetSerializer.write(encoder, startParameter.getDeprecations());
@@ -163,9 +168,9 @@ public class BuildActionSerializer {
             startParameter.setProjectCacheDir(nullableFileSerializer.read(decoder));
             startParameter.setIncludedBuilds(fileListSerializer.read(decoder));
             if (decoder.readBoolean()) {
-                startParameter.useEmptySettings();
+                startParameter.useEmptySettingsWithoutDeprecationWarning();
             }
-            startParameter.setSearchUpwards(decoder.readBoolean());
+            startParameter.setSearchUpwardsWithoutDeprecationWarning(decoder.readBoolean());
 
             // Other stuff
             startParameter.setProjectProperties(NO_NULL_STRING_MAP_SERIALIZER.read(decoder));
@@ -188,6 +193,13 @@ public class BuildActionSerializer {
             startParameter.setBuildScan(decoder.readBoolean());
             startParameter.setNoBuildScan(decoder.readBoolean());
             startParameter.setWriteDependencyLocks(decoder.readBoolean());
+            List<String> checksums = stringListSerializer.read(decoder);
+            if (!checksums.isEmpty()) {
+                startParameter.setWriteDependencyVerifications(checksums);
+            }
+            startParameter.setDependencyVerificationMode(DependencyVerificationMode.valueOf(decoder.readString()));
+            startParameter.setRefreshKeys(decoder.readBoolean());
+            startParameter.setExportKeys(decoder.readBoolean());
 
             for (String warning : stringSetSerializer.read(decoder)) {
                 startParameter.addDeprecation(warning);

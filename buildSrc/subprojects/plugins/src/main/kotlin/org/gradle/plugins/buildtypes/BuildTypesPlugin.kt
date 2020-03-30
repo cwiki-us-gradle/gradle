@@ -101,10 +101,9 @@ fun Project.insertBuildTypeTasksInto(
         findProject(subproject) != null ->
             forEachBuildTypeTask {
                 val taskPath = "$subproject:$it"
-                if (tasks.findByPath(taskPath) != null) {
-                    insert(taskPath)
-                } else {
-                    println("Skipping task '$taskPath' requested by build type ${buildType.name}, as it does not exist.")
+                when {
+                    tasks.findByPath(taskPath) == null -> println("Skipping task '$taskPath' requested by build type ${buildType.name}, as it does not exist.")
+                    else -> insert(taskPath)
                 }
             }
         else -> {

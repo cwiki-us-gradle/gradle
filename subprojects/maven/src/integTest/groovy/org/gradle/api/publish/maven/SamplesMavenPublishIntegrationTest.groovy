@@ -18,6 +18,7 @@
 package org.gradle.api.publish.maven
 
 import org.gradle.integtests.fixtures.AbstractSampleIntegrationTest
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.Sample
 import org.gradle.integtests.fixtures.UsesSample
 import org.gradle.test.fixtures.maven.MavenFileModule
@@ -30,6 +31,7 @@ class SamplesMavenPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("maven-publish/quickstart")
+    @ToBeFixedForInstantExecution
     def "quickstart publish with #dsl dsl"() {
         given:
         def sampleDir = sampleProject.dir.file(dsl)
@@ -53,6 +55,7 @@ class SamplesMavenPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("maven-publish/quickstart")
+    @ToBeFixedForInstantExecution
     def "quickstart publish local with #dsl dsl"() {
         using m2
 
@@ -81,7 +84,8 @@ class SamplesMavenPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("maven-publish/javaProject")
-    def javaProject() {
+    @ToBeFixedForInstantExecution
+    def "publish java project with #dsl dsl"() {
         given:
         def sampleDir = sampleProject.dir.file(dsl)
         executer.inDirectory(sampleDir)
@@ -97,7 +101,6 @@ class SamplesMavenPublishIntegrationTest extends AbstractSampleIntegrationTest {
         module.assertPublished()
         module.assertArtifactsPublished(
             "javaProject-1.0.jar",
-            "javaProject-1.0-sources.jar",
             "javaProject-1.0-javadoc.jar",
             "javaProject-1.0.pom",
             "javaProject-1.0.module")
@@ -110,6 +113,7 @@ class SamplesMavenPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("maven-publish/multiple-publications")
+    @ToBeFixedForInstantExecution
     def "multiple publications with #dsl dsl"() {
         given:
         def sampleDir = sampleProject.dir.file(dsl)
@@ -142,6 +146,7 @@ class SamplesMavenPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("maven-publish/conditional-publishing")
+    @ToBeFixedForInstantExecution
     def "conditional publishing with #dsl dsl"() {
         using m2
 
@@ -179,6 +184,7 @@ class SamplesMavenPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("maven-publish/conditional-publishing")
+    @ToBeFixedForInstantExecution
     def "shorthand publish to external repository with #dsl dsl"() {
         given:
         inDirectory(sampleProject.dir.file(dsl))
@@ -197,6 +203,7 @@ class SamplesMavenPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("maven-publish/conditional-publishing")
+    @ToBeFixedForInstantExecution
     def "shorthand publish for development with #dsl dsl"() {
         given:
         inDirectory(sampleProject.dir.file(dsl))
@@ -217,6 +224,7 @@ class SamplesMavenPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("maven-publish/publish-artifact")
+    @ToBeFixedForInstantExecution
     def "publishes rpm artifact with #dsl dsl"() {
         given:
         def sampleDir = sampleProject.dir.file(dsl)
@@ -241,6 +249,7 @@ class SamplesMavenPublishIntegrationTest extends AbstractSampleIntegrationTest {
     }
 
     @UsesSample("maven-publish/pomGeneration")
+    @ToBeFixedForInstantExecution
     def pomGeneration() {
         given:
         sample sampleProject
@@ -256,6 +265,7 @@ class SamplesMavenPublishIntegrationTest extends AbstractSampleIntegrationTest {
 
     @Unroll
     @UsesSample("maven-publish/distribution")
+    @ToBeFixedForInstantExecution
     def "publishes distribution archives with #dsl dsl"() {
         given:
         def sampleDir = sampleProject.dir.file(dsl)

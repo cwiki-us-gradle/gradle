@@ -17,6 +17,7 @@ package org.gradle.integtests.tooling
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.RepoScriptBlockUtil
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.executer.GradleDistribution
 import org.gradle.integtests.fixtures.executer.GradleHandle
 import org.gradle.integtests.fixtures.versions.ReleasedVersionDistributions
@@ -32,6 +33,10 @@ import org.gradle.tooling.model.GradleProject
 import org.gradle.util.GradleVersion
 import org.junit.Assume
 import spock.lang.Issue
+
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 class ToolingApiIntegrationTest extends AbstractIntegrationSpec {
 
@@ -68,6 +73,28 @@ class ToolingApiIntegrationTest extends AbstractIntegrationSpec {
         then:
         stdOut.toString().contains("CONFIGURE SUCCESSFUL")
         !stdOut.toString().contains("BUILD SUCCESSFUL")
+    }
+
+    def "can configure Kotlin DSL project with gradleApi() dependency via tooling API"() {
+        given:
+        buildKotlinFile << """
+        plugins {
+            java
+        }
+
+        dependencies {
+            implementation(gradleApi())
+        }
+        """
+
+        when:
+        def stdOut = new ByteArrayOutputStream()
+        toolingApi.withConnection { ProjectConnection connection ->
+            connection.action(new KotlinIdeaModelBuildAction()).setStandardOutput(stdOut).run()
+        }
+
+        then:
+        stdOut.toString().contains("CONFIGURE SUCCESSFUL")
     }
 
     def "tooling api uses the wrapper properties to determine which version to use"() {
@@ -153,6 +180,7 @@ allprojects {
     }
 
     @Issue("GRADLE-2419")
+    @ToBeFixedForInstantExecution
     def "tooling API does not hold JVM open"() {
         given:
         def buildFile = projectDir.file("build.gradle")
@@ -174,8 +202,8 @@ allprojects {
             }
 
             dependencies {
-                // If this test fails due to a missing tooling API jar 
-                // re-run `gradle prepareVersionsInfo toolingApi:intTestImage publishLocalArchives` 
+                // If this test fails due to a missing tooling API jar
+                // re-run `gradle prepareVersionsInfo toolingApi:intTestImage publishGradleDistributionPublicationToLocalRepository`
                 implementation "org.gradle:gradle-tooling-api:${distribution.version.version}"
                 runtimeOnly 'org.slf4j:slf4j-simple:1.7.10'
             }
@@ -302,6 +330,13 @@ allprojects {
         }
 
         handle.waitForFinish()
+
+        // https://github.com/gradle/gradle-private/issues/3005
+        println "Waiting for daemon exit, start: ${ZonedDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT)}"
+
+        Thread.sleep(stopTimeoutMs)
+
+        println "Waiting for daemon exit, end: ${ZonedDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT)}"
 
         where:
         withColor << [true, false]

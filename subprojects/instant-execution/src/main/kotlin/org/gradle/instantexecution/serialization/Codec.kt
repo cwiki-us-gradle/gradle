@@ -21,6 +21,8 @@ import org.gradle.api.internal.GradleInternal
 import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.api.invocation.Gradle
 import org.gradle.api.logging.Logger
+import org.gradle.instantexecution.DefaultInstantExecution
+import org.gradle.instantexecution.extensions.uncheckedCast
 import org.gradle.instantexecution.serialization.beans.BeanStateReader
 import org.gradle.instantexecution.serialization.beans.BeanStateWriter
 import org.gradle.internal.serialize.Decoder
@@ -72,6 +74,9 @@ interface ReadContext : IsolateContext, MutableIsolateContext, Decoder {
 }
 
 
+suspend fun <T : Any> ReadContext.readNonNull() = read()!!.uncheckedCast<T>()
+
+
 interface IsolateContext {
 
     val logger: Logger
@@ -90,12 +95,15 @@ sealed class PropertyProblem {
 
     abstract val message: StructuredMessage
 
+    abstract val exception: Throwable?
+
     /**
      * A problem that does not necessarily compromise the execution of the build.
      */
     data class Warning(
         override val trace: PropertyTrace,
-        override val message: StructuredMessage
+        override val message: StructuredMessage,
+        override val exception: Throwable? = null
     ) : PropertyProblem()
 
     /**
@@ -105,7 +113,7 @@ sealed class PropertyProblem {
     data class Error(
         override val trace: PropertyTrace,
         override val message: StructuredMessage,
-        val exception: Throwable
+        override val exception: Throwable
     ) : PropertyProblem()
 }
 
@@ -190,7 +198,7 @@ sealed class PropertyTrace {
     fun StringBuilder.appendStringOf(trace: PropertyTrace) {
         when (trace) {
             is Gradle -> {
-                append("Gradle state")
+                append("Gradle runtime")
             }
             is Property -> {
                 append(trace.kind)
@@ -266,12 +274,11 @@ sealed class IsolateOwner {
     class OwnerGradle(override val delegate: Gradle) : IsolateOwner() {
         override fun <T> service(type: Class<T>): T = (delegate as GradleInternal).services.get(type)
     }
+
+    class OwnerHost(override val delegate: DefaultInstantExecution.Host) : IsolateOwner() {
+        override fun <T> service(type: Class<T>): T = delegate.getService(type)
+    }
 }
-
-
-internal
-inline fun <reified T> IsolateOwner.service() =
-    service(T::class.java)
 
 
 interface Isolate {
@@ -299,6 +306,7 @@ interface ReadIsolate : Isolate {
 
 
 interface MutableIsolateContext {
+    fun push(codec: Codec<Any?>)
     fun push(owner: IsolateOwner, codec: Codec<Any?>)
     fun pop()
 }
@@ -328,6 +336,17 @@ inline fun <T : MutableIsolateContext, R> T.withIsolate(owner: IsolateOwner, cod
 
 
 internal
+inline fun <T : MutableIsolateContext, R> T.withCodec(codec: Codec<Any?>, block: T.() -> R): R {
+    push(codec)
+    try {
+        return block()
+    } finally {
+        pop()
+    }
+}
+
+
+internal
 inline fun <T : IsolateContext, R> T.withBeanTrace(beanType: Class<*>, action: () -> R): R =
     withPropertyTrace(PropertyTrace.Bean(beanType, trace)) {
         action()
@@ -348,24 +367,49 @@ inline fun <T : IsolateContext, R> T.withPropertyTrace(trace: PropertyTrace, blo
 
 internal
 inline fun WriteContext.encodePreservingIdentityOf(reference: Any, encode: WriteContext.(Any) -> Unit) {
-    val id = isolate.identities.getId(reference)
+    encodePreservingIdentityOf(isolate.identities, reference, encode)
+}
+
+
+internal
+inline fun WriteContext.encodePreservingSharedIdentityOf(reference: Any, encode: WriteContext.(Any) -> Unit) =
+    encodePreservingIdentityOf(sharedIdentities, reference, encode)
+
+
+internal
+inline fun WriteContext.encodePreservingIdentityOf(identities: WriteIdentities, reference: Any, encode: WriteContext.(Any) -> Unit) {
+    val id = identities.getId(reference)
     if (id != null) {
         writeSmallInt(id)
     } else {
-        writeSmallInt(isolate.identities.putInstance(reference))
+        writeSmallInt(identities.putInstance(reference))
         encode(reference)
     }
 }
 
 
 internal
-inline fun ReadContext.decodePreservingIdentity(decode: ReadContext.(Int) -> Any): Any {
+inline fun <T> ReadContext.decodePreservingIdentity(decode: ReadContext.(Int) -> T): T =
+    decodePreservingIdentity(isolate.identities, decode)
+
+
+internal
+inline fun <T : Any> ReadContext.decodePreservingSharedIdentity(decode: ReadContext.(Int) -> T): T =
+    decodePreservingIdentity(sharedIdentities) { id ->
+        decode(id).also {
+            sharedIdentities.putInstance(id, it)
+        }
+    }
+
+
+internal
+inline fun <T> ReadContext.decodePreservingIdentity(identities: ReadIdentities, decode: ReadContext.(Int) -> T): T {
     val id = readSmallInt()
-    val previousValue = isolate.identities.getInstance(id)
+    val previousValue = identities.getInstance(id)
     return when {
-        previousValue != null -> previousValue
+        previousValue != null -> previousValue.uncheckedCast()
         else -> decode(id).also {
-            require(isolate.identities.getInstance(id) === it) {
+            require(identities.getInstance(id) === it) {
                 "`decode(id)` should register the decoded instance"
             }
         }

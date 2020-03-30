@@ -40,12 +40,15 @@ import org.gradle.api.tasks.Upload;
 import org.gradle.api.tasks.bundling.AbstractArchiveTask;
 import org.gradle.configuration.project.ProjectConfigurationActionContainer;
 import org.gradle.internal.Describables;
+import org.gradle.internal.deprecation.DeprecatableConfiguration;
+import org.gradle.internal.deprecation.DeprecationLogger;
 import org.gradle.jvm.tasks.Jar;
 import org.gradle.language.base.plugins.LifecycleBasePlugin;
 
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * <p>A  {@link org.gradle.api.Plugin}  which defines a basic project lifecycle and some common convention properties.</p>
@@ -88,24 +91,11 @@ public class BasePlugin implements Plugin<Project> {
         project.getTasks().withType(AbstractArchiveTask.class).configureEach(new Action<AbstractArchiveTask>() {
             @Override
             public void execute(AbstractArchiveTask task) {
-
-                Callable<String> destinationDir;
                 if (task instanceof Jar) {
-                    destinationDir = new Callable<String>() {
-                        @Override
-                        public String call() {
-                            return pluginConvention.getLibsDirName();
-                        }
-                    };
+                    task.getDestinationDirectory().convention(pluginConvention.getLibsDirectory());
                 } else {
-                    destinationDir = new Callable<String>() {
-                        @Override
-                        public String call() {
-                            return pluginConvention.getDistsDirName();
-                        }
-                    };
+                    task.getDestinationDirectory().convention(pluginConvention.getDistsDirectory());
                 }
-                task.getDestinationDirectory().convention(project.getLayout().getBuildDirectory().dir(project.provider(destinationDir)));
 
                 task.getArchiveVersion().convention(project.provider(new Callable<String>() {
                     @Override
@@ -141,7 +131,14 @@ public class BasePlugin implements Plugin<Project> {
                 if (uploadArchives == null) {
                     return;
                 }
-
+                AtomicBoolean usesMaven = new AtomicBoolean();
+                project.getPluginManager().withPlugin("maven", p -> usesMaven.set(true));
+                uploadArchives.doFirst(task -> DeprecationLogger
+                    .deprecateTask(UPLOAD_ARCHIVES_TASK_NAME)
+                    .withAdvice("Use the " + (usesMaven.get() ? "'maven-publish'" : "'ivy-publish'") + " plugin instead.")
+                    .willBeRemovedInGradle7()
+                    .withUpgradeGuideSection(5, "legacy_publication_system_is_deprecated_and_replaced_with_the_publish_plugins")
+                    .nagUser());
                 boolean hasIvyRepo = !uploadArchives.getRepositories().withType(IvyArtifactRepository.class).isEmpty();
                 if (!hasIvyRepo) {
                     return;
@@ -159,15 +156,20 @@ public class BasePlugin implements Plugin<Project> {
         ConfigurationContainer configurations = project.getConfigurations();
         project.setStatus("integration");
 
-        final Configuration archivesConfiguration = configurations.maybeCreate(Dependency.ARCHIVES_CONFIGURATION).
-                setDescription("Configuration for archive artifacts.");
+        final DeprecatableConfiguration archivesConfiguration = (DeprecatableConfiguration) configurations.maybeCreate(Dependency.ARCHIVES_CONFIGURATION).
+            setDescription("Configuration for archive artifacts.");
 
-        configurations.maybeCreate(Dependency.DEFAULT_CONFIGURATION).
-                setDescription("Configuration for default artifacts.");
+        final DeprecatableConfiguration defaultConfiguration = (DeprecatableConfiguration) configurations.maybeCreate(Dependency.DEFAULT_CONFIGURATION).
+            setDescription("Configuration for default artifacts.");
 
         final DefaultArtifactPublicationSet defaultArtifacts = project.getExtensions().create(
-                "defaultArtifacts", DefaultArtifactPublicationSet.class, archivesConfiguration.getArtifacts()
+            "defaultArtifacts", DefaultArtifactPublicationSet.class, archivesConfiguration.getArtifacts()
         );
+
+        archivesConfiguration.deprecateForResolution(JavaPlugin.COMPILE_CLASSPATH_CONFIGURATION_NAME, JavaPlugin.RUNTIME_CLASSPATH_CONFIGURATION_NAME);
+        defaultConfiguration.deprecateForResolution(JavaPlugin.COMPILE_CLASSPATH_CONFIGURATION_NAME, JavaPlugin.RUNTIME_CLASSPATH_CONFIGURATION_NAME);
+        archivesConfiguration.deprecateForDeclaration(JavaPlugin.IMPLEMENTATION_CONFIGURATION_NAME, JavaPlugin.API_CONFIGURATION_NAME);
+        defaultConfiguration.deprecateForDeclaration(JavaPlugin.IMPLEMENTATION_CONFIGURATION_NAME, JavaPlugin.API_CONFIGURATION_NAME);
 
         configurations.all(new Action<Configuration>() {
             @Override

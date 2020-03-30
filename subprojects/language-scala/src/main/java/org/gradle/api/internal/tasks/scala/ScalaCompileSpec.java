@@ -25,6 +25,10 @@ import java.util.Map;
 public interface ScalaCompileSpec extends JvmLanguageCompileSpec {
     BaseScalaCompileOptions getScalaCompileOptions();
 
+    Iterable<File> getScalaCompilerPlugins();
+
+    void setScalaCompilerPlugins(Iterable<File> plugins);
+
     File getAnalysisFile();
 
     void setAnalysisFile(File analysisFile);
@@ -32,4 +36,6 @@ public interface ScalaCompileSpec extends JvmLanguageCompileSpec {
     Map<File, File> getAnalysisMap();
 
     void setAnalysisMap(Map<File, File> analysisMap);
+
+    long getBuildStartTimestamp();
 }

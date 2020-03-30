@@ -17,6 +17,7 @@
 package org.gradle.javadoc
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
 import org.gradle.test.fixtures.ConcurrentTestUtil
 import org.gradle.test.fixtures.archive.ZipTestFixture
@@ -59,6 +60,7 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
         '''
     }
 
+    @ToBeFixedForInstantExecution
     def "does not regenerate javadoc when the upstream jar is just rebuilt without changes"() {
         given:
         succeeds(":a:javadoc")
@@ -92,7 +94,7 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
                 from("external/c")
                 from("external/d")
                 
-                archiveName = "external.jar"
+                archiveFileName = "external.jar"
             }
             task reverseAlphabetic(type: Jar) {
                 from("external/d")
@@ -100,7 +102,7 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
                 from("external/b")
                 from("external/a")
                 
-                archiveName = "external.jar"
+                archiveFileName = "external.jar"
             }
         """
         ['a', 'b', 'c', 'd'].each {
@@ -137,7 +139,7 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
                 from("external/c")
                 from("external/d")
                 
-                archiveName = "external.jar"
+                archiveFileName = "external.jar"
             }
             task oldTime(type: Jar) {
                 from("external/a")
@@ -145,7 +147,7 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
                 from("external/c")
                 from("external/d")
                 
-                archiveName = "external.jar"
+                archiveFileName = "external.jar"
                 preserveFileTimestamps = false
             }
         """
@@ -183,7 +185,7 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
                 from("external/c")
                 from("external/d")
                 from("duplicate/a")
-                archiveName = "external.jar"
+                archiveFileName = "external.jar"
             }
         """
         def externalJar = file("build/libs/external.jar")

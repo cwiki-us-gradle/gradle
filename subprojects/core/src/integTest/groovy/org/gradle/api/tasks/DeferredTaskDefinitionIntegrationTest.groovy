@@ -27,7 +27,9 @@ class DeferredTaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
         import javax.inject.Inject
 
         class CustomTask extends DefaultTask {
+            @Internal
             final String message
+            @Internal
             final int number
 
             @Inject
@@ -305,7 +307,7 @@ class DeferredTaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
         run("other")
 
         then:
-        result.assertNotOutput("Received")
+        result.assertNotOutput("Received :")
         result.assertNotOutput("task1")
         result.assertNotOutput("task2")
 
@@ -685,7 +687,7 @@ class DeferredTaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
         then:
         failure.assertHasCause("Could not create task ':myTask'.")
         failure.assertHasCause("Could not create task of type 'CustomTask'.")
-        failure.assertHasCause("Unable to determine constructor argument #2: missing parameter of int, or no service of type int")
+        failure.assertHasCause("Unable to determine constructor argument #2: missing parameter of type int, or no service of type int")
     }
 
     def "fails to create custom task if all constructor arguments missing"() {
@@ -699,7 +701,7 @@ class DeferredTaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
         then:
         failure.assertHasCause("Could not create task ':myTask'.")
         failure.assertHasCause("Could not create task of type 'CustomTask'.")
-        failure.assertHasCause("Unable to determine constructor argument #1: missing parameter of class java.lang.String, or no service of type class java.lang.String")
+        failure.assertHasCause("Unable to determine constructor argument #1: missing parameter of type String, or no service of type String")
     }
 
     @Unroll
@@ -811,7 +813,7 @@ class DeferredTaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
             }
             def zipTaskRealizedCount = 0
             tasks.register("aZipTask", Zip) {
-                destinationDir = buildDir
+                destinationDirectory = buildDir
                 zipTaskRealizedCount++
             }
 
@@ -1154,7 +1156,9 @@ class DeferredTaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
     def "can locate task by name and type with named"() {
         buildFile << """
             class CustomTask extends DefaultTask {
+                @Internal
                 String message
+                @Internal
                 int number
                 
                 @TaskAction

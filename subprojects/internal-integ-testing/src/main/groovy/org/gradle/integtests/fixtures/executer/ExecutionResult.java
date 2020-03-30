@@ -67,6 +67,24 @@ public interface ExecutionResult {
     String getError();
 
     /**
+     * Retrieves the first output line that contains the passed in text.
+     *
+     * Fails with an assertion if no output line contains the given text.
+     *
+     * @param text the text to match
+     */
+    String getOutputLineThatContains(String text);
+
+    /**
+     * Retrieves the first output line in the post build output that contains the passed in text.
+     *
+     * Fails with an assertion if no post build output line contains the given text.
+     *
+     * @param text the text to match
+     */
+    String getPostBuildOutputLineThatContains(String text);
+
+    /**
      * Asserts that this result includes the given error log message. Does not consider any text in or following the build result message (use {@link #assertHasPostBuildOutput(String)} instead).
      *
      * @param expectedOutput The expected log message, with line endings normalized to a newline character.

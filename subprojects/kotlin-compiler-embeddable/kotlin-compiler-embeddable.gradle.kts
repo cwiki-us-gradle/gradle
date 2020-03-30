@@ -20,6 +20,7 @@ dependencies {
     api(futureKotlin("stdlib"))
     api(futureKotlin("reflect"))
     api(futureKotlin("script-runtime"))
+    api(futureKotlin("daemon-embeddable"))
 
     runtimeOnly(library("trove4j"))
 }
@@ -55,6 +56,8 @@ tasks {
         additionalRootFiles.from(classpathManifest)
 
         outputFile.set(jar.get().archiveFile)
+
+        outputs.doNotCacheIfSlowInternetConnection()
     }
 
     jar {

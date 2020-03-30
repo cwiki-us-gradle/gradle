@@ -17,6 +17,7 @@
 package org.gradle.integtests.resolve.locking
 
 import org.gradle.integtests.fixtures.AbstractDependencyResolutionTest
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 
 class MixedDependencyLockingIntegrationTest extends AbstractDependencyResolutionTest {
 
@@ -41,7 +42,7 @@ configurations {
     lockedConf {
         resolutionStrategy.activateDependencyLocking()
     }
-    
+
     unlockedConf
 }
 
@@ -51,7 +52,7 @@ dependencies {
 }
 """
 
-        lockfileFixture.createLockfile('lockedConf', ['org:foo:1.0'])
+        lockfileFixture.createLockfile('lockedConf', ['org:foo:1.0'], false)
 
         when:
         succeeds 'dependencyInsight', '--configuration', 'lockedConf', '--dependency', 'foo'
@@ -84,7 +85,7 @@ configurations {
     lockedConf {
         resolutionStrategy.activateDependencyLocking()
     }
-    
+
     unlockedConf.extendsFrom lockedConf
 }
 
@@ -93,7 +94,7 @@ dependencies {
 }
 """
 
-        lockfileFixture.createLockfile('lockedConf', ['org:foo:1.0'])
+        lockfileFixture.createLockfile('lockedConf', ['org:foo:1.0'], false)
 
         when:
         succeeds 'dependencyInsight', '--configuration', 'unlockedConf', '--dependency', 'foo'
@@ -128,7 +129,7 @@ dependencies {
 }
 """
 
-        lockfileFixture.createLockfile('lockedConf', ['org:foo:1.0'])
+        lockfileFixture.createLockfile('lockedConf', ['org:foo:1.0'], false)
 
         when:
         succeeds 'dependencyInsight', '--configuration', 'lockedConf', '--dependency', 'foo'
@@ -138,6 +139,7 @@ dependencies {
         outputContains('dependency was locked to version \'1.0\'')
     }
 
+    @ToBeFixedForInstantExecution
     def 'writes lock file entries for inherited dependencies'() {
         mavenRepo.module('org', 'foo', '1.0').publish()
         mavenRepo.module('org', 'foo', '1.1').publish()
@@ -167,6 +169,6 @@ dependencies {
         succeeds 'dependencies', '--configuration', 'lockedConf', '--write-locks'
 
         then:
-        lockfileFixture.verifyLockfile('lockedConf', ['org:foo:1.1'])
+        lockfileFixture.verifyLockfile('lockedConf', ['org:foo:1.1'], false)
     }
 }

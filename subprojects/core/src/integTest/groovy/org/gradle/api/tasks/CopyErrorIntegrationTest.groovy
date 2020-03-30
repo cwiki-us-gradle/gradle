@@ -16,6 +16,7 @@
 package org.gradle.api.tasks
 
 import org.gradle.integtests.fixtures.AbstractIntegrationTest
+import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.executer.ExecutionFailure
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.util.PreconditionVerifier
@@ -30,7 +31,9 @@ class CopyErrorIntegrationTest extends AbstractIntegrationTest {
     @Rule public PreconditionVerifier verifier = new PreconditionVerifier()
 
     @Test
+    @ToBeFixedForInstantExecution
     void givesReasonableErrorMessageWhenPathCannotBeConverted() {
+
         file('src/thing.txt').createFile()
 
         testFile('build.gradle') << '''
@@ -45,12 +48,13 @@ class CopyErrorIntegrationTest extends AbstractIntegrationTest {
         ExecutionFailure failure = inTestDirectory().withTasks('copy').runWithFailure()
         failure.assertHasCause("""Cannot convert the provided notation to a String: repository container.
 The following types/formats are supported:
-  - String or CharSequence instances, for example 'some/path'.
+  - String or CharSequence instances, for example "some/path".
   - Boolean values, for example true, Boolean.TRUE.
   - Number values, for example 42, 3.14.
   - A File instance
   - A Closure that returns any supported value.
-  - A Callable that returns any supported value.""")
+  - A Callable that returns any supported value.
+  - A Provider that provides any supported value.""")
     }
 
     @Test

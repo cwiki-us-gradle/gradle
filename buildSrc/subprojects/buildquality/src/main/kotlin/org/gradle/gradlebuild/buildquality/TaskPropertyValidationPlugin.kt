@@ -22,15 +22,17 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.artifacts.Configuration
 import org.gradle.api.attributes.Attribute
+import org.gradle.api.attributes.Category
+import org.gradle.api.attributes.LibraryElements
 import org.gradle.api.attributes.Usage
 import org.gradle.api.tasks.testing.Test
 
 import org.gradle.kotlin.dsl.*
-import org.gradle.plugin.devel.tasks.ValidateTaskProperties
+import org.gradle.plugin.devel.tasks.ValidatePlugins
 
 
 private
-const val validateTaskName = "validateTaskProperties"
+const val validateTaskName = "validatePlugins"
 
 
 private
@@ -48,7 +50,11 @@ open class TaskPropertyValidationPlugin : Plugin<Project> {
                     isCanBeConsumed = false
                     attributes.attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_RUNTIME))
                     // Required to select the right :distributions variant
-                    attributes.attribute(Attribute.of("org.gradle.runtime", String::class.java), "minimal")
+                    attributes {
+                        attribute(Attribute.of("org.gradle.runtime", String::class.java), "minimal")
+                        attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category.LIBRARY))
+                        attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements.JAR))
+                    }
                 }
                 dependencies.add(
                     validationRuntime.name,
@@ -56,9 +62,9 @@ open class TaskPropertyValidationPlugin : Plugin<Project> {
                 )
 
                 val validateTask = if (plugins.hasPlugin("java-gradle-plugin")) {
-                    tasks.named(validateTaskName, ValidateTaskProperties::class)
+                    tasks.named(validateTaskName, ValidatePlugins::class)
                 } else {
-                    tasks.register(validateTaskName, ValidateTaskProperties::class)
+                    tasks.register(validateTaskName, ValidatePlugins::class)
                 }
 
                 validateTask {
@@ -75,7 +81,7 @@ open class TaskPropertyValidationPlugin : Plugin<Project> {
     }
 
     private
-    fun ValidateTaskProperties.configureValidateTask(validationRuntime: Configuration) {
+    fun ValidatePlugins.configureValidateTask(validationRuntime: Configuration) {
         val main by project.java.sourceSets
         dependsOn(main.output)
         classes.setFrom(main.output.classesDirs)
@@ -84,7 +90,7 @@ open class TaskPropertyValidationPlugin : Plugin<Project> {
         classpath.from(validationRuntime)
         // TODO Should we provide a more intuitive way in the task definition to configure this property from Kotlin?
         outputFile.set(project.reporting.baseDirectory.file(reportFileName))
-        failOnWarning = true
-        enableStricterValidation = true
+        failOnWarning.set(true)
+        enableStricterValidation.set(true)
     }
 }

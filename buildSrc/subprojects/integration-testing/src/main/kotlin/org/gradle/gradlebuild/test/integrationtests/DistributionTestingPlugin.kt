@@ -16,30 +16,24 @@
 
 package org.gradle.gradlebuild.test.integrationtests
 
+import accessors.base
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.file.ProjectLayout
-import org.gradle.api.invocation.Gradle
+import org.gradle.api.model.ObjectFactory
 import org.gradle.api.plugins.BasePluginConvention
 import org.gradle.api.provider.Provider
 import org.gradle.api.provider.ProviderFactory
 import org.gradle.api.tasks.Sync
-
-import org.gradle.kotlin.dsl.*
-
-import accessors.base
-import org.gradle.api.file.FileCollection
-import org.gradle.api.model.ObjectFactory
 import org.gradle.gradlebuild.packaging.ShadedJar
-import org.gradle.gradlebuild.testing.integrationtests.cleanup.CleanUpDaemons
+import org.gradle.gradlebuild.testing.integrationtests.cleanup.CleanupExtension
 import org.gradle.internal.classloader.ClasspathHasher
 import org.gradle.internal.classpath.DefaultClassPath
+import org.gradle.kotlin.dsl.*
 import org.gradle.kotlin.dsl.support.serviceOf
-
-import kotlin.collections.set
-
 import java.io.File
+import kotlin.collections.set
 
 
 class DistributionTestingPlugin : Plugin<Project> {
@@ -53,29 +47,41 @@ class DistributionTestingPlugin : Plugin<Project> {
 
             setJvmArgsOfTestJvm()
             setSystemPropertiesOfTestJVM(project)
-            configureGradleTestEnvironment(rootProject.providers, rootProject.layout, rootProject.base, rootProject.objects)
-            addSetUpAndTearDownActions(gradle)
+            configureGradleTestEnvironment(
+                rootProject.providers,
+                rootProject.layout,
+                rootProject.base,
+                rootProject.objects
+            )
+            addSetUpAndTearDownActions(project)
+        }
+        rootProject.project(":toolingApi").afterEvaluate {
+            this@run.tasks.withType<DistributionTest>().configureEach {
+                gradleInstallationForTest.toolingApiShadedJarDir.set(dirWorkaround(providers, layout, objects) {
+                    // TODO Refactor to not reach into tasks of another project
+                    val toolingApiShadedJar: ShadedJar by tasks
+                    toolingApiShadedJar.jarFile.get().asFile.parentFile
+                })
+            }
         }
     }
 
+    // TODO: Replace this with something in the Gradle API to make this transition easier
     private
-    fun DistributionTest.addSetUpAndTearDownActions(gradle: Gradle) {
-        lateinit var daemonListener: Any
-
-        // TODO Why don't we register with the test listener of the test task
-        // We would not need to do late configuration and need to add a global listener
-        // We now add multiple global listeners stepping on each other
-        doFirst {
-            // TODO Refactor to not reach into tasks of another project
-            val cleanUpDaemons: CleanUpDaemons by gradle.rootProject.tasks
-            daemonListener = cleanUpDaemons.newDaemonListener()
-            gradle.addListener(daemonListener)
+    fun dirWorkaround(
+        providers: ProviderFactory,
+        layout: ProjectLayout,
+        objects: ObjectFactory,
+        directory: () -> File
+    ): Provider<Directory> =
+        objects.directoryProperty().also {
+            it.set(layout.projectDirectory.dir(providers.provider { directory().absolutePath }))
         }
 
-        // TODO Remove once we go to task specific listeners.
-        doLast {
-            gradle.removeListener(daemonListener)
-        }
+    private
+    fun DistributionTest.addSetUpAndTearDownActions(project: Project) {
+        val cleanupExtension = project.rootProject.extensions.getByType(CleanupExtension::class.java)
+        this.tracker.set(cleanupExtension.tracker)
     }
 
     private
@@ -83,24 +89,13 @@ class DistributionTestingPlugin : Plugin<Project> {
 
         val projectDirectory = layout.projectDirectory
 
-        // TODO: Replace this with something in the Gradle API to make this transition easier
-        fun dirWorkaround(directory: () -> File): Provider<Directory> = objects.directoryProperty().also {
-            it.set(projectDirectory.dir(providers.provider { directory().absolutePath }))
-        }
-
         gradleInstallationForTest.apply {
             val intTestImage: Sync by project.tasks
             gradleUserHomeDir.set(projectDirectory.dir("intTestHomeDir"))
-            gradleGeneratedApiJarCacheDir.set(providers.provider {
-                projectDirectory.dir("intTestHomeDir/generatedApiJars/${project.version}/${project.name}-$classpathHash")
-            })
+            gradleGeneratedApiJarCacheDir.set(defaultGradleGeneratedApiJarCacheDirProvider(providers, layout))
             daemonRegistry.set(layout.buildDirectory.dir("daemon"))
-            gradleHomeDir.set(dirWorkaround { intTestImage.destinationDir })
-            toolingApiShadedJarDir.set(dirWorkaround {
-                // TODO Refactor to not reach into tasks of another project
-                val toolingApiShadedJar: ShadedJar by project.rootProject.project(":toolingApi").tasks
-                toolingApiShadedJar.jarFile.get().asFile.parentFile
-            })
+            gradleHomeDir.set(dirWorkaround(providers, layout, objects) { intTestImage.destinationDir })
+            gradleSnippetsDir.set(layout.projectDirectory.dir("subprojects/docs/src/snippets"))
         }
 
         libsRepository.dir.set(projectDirectory.dir("build/repo"))
@@ -110,14 +105,6 @@ class DistributionTestingPlugin : Plugin<Project> {
             distZipVersion = project.version.toString()
         }
     }
-
-    private
-    val DistributionTest.classpathHash
-        get() = project.classPathHashOf(classpath)
-
-    private
-    fun Project.classPathHashOf(files: FileCollection) =
-        serviceOf<ClasspathHasher>().hash(DefaultClassPath.of(files))
 
     private
     fun DistributionTest.setJvmArgsOfTestJvm() {
@@ -131,20 +118,37 @@ class DistributionTestingPlugin : Plugin<Project> {
     fun DistributionTest.setSystemPropertiesOfTestJVM(project: Project) {
         // use -PtestVersions=all or -PtestVersions=1.2,1.3…
         val integTestVersionsSysProp = "org.gradle.integtest.versions"
+        val sysPropValue = System.getProperty(integTestVersionsSysProp)
         if (project.hasProperty("testVersions")) {
             systemProperties[integTestVersionsSysProp] = project.property("testVersions")
         } else {
-            if (integTestVersionsSysProp !in systemProperties) {
-                if (project.findProperty("testPartialVersions") == true) {
-                    systemProperties[integTestVersionsSysProp] = "partial"
-                }
-                if (project.findProperty("testAllVersions") == true) {
-                    systemProperties[integTestVersionsSysProp] = "all"
-                }
-                if (integTestVersionsSysProp !in systemProperties) {
-                    systemProperties[integTestVersionsSysProp] = "default"
-                }
-            }
+            systemProperties[integTestVersionsSysProp] = "default"
         }
     }
 }
+
+
+fun DistributionTest.defaultGradleGeneratedApiJarCacheDirProvider(providers: ProviderFactory, layout: ProjectLayout): Provider<Directory> {
+    val projectName = project.name
+    val projectVersion = project.version
+    val classpathHasher = project.serviceOf<ClasspathHasher>()
+    return providers.provider { defaultGeneratedGradleApiJarCacheDir(layout, projectName, projectVersion, classpathHasher) }
+}
+
+
+/**
+ * Computes a project and classpath specific `intTestHomeDir/generatedApiJars` directory.
+ */
+private
+fun DistributionTest.defaultGeneratedGradleApiJarCacheDir(
+    layout: ProjectLayout,
+    projectName: String,
+    projectVersion: Any,
+    classpathHasher: ClasspathHasher
+): Directory =
+    layout.projectDirectory.dir("intTestHomeDir/generatedApiJars/$projectVersion/$projectName-${classpathHash(classpathHasher)}")
+
+
+private
+fun DistributionTest.classpathHash(classpathHasher: ClasspathHasher) =
+    classpathHasher.hash(DefaultClassPath.of(classpath))

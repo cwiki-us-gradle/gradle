@@ -18,18 +18,28 @@ package org.gradle.instantexecution
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskAction
 
 class InstantExecutionBuildSrcIntegrationTest extends AbstractInstantExecutionIntegrationTest {
     def "can use tasks defined in buildSrc"() {
+        given:
+        file("buildSrc/settings.gradle") << """
+            include 'ignored' // include some content
+        """
+        file("buildSrc/build.gradle") << """
+            allprojects { apply plugin: 'java-library' } // include some content
+        """
         file("buildSrc/src/main/java/CustomTask.java") << """
             import ${DefaultTask.name};
             import ${TaskAction.name};
+            import ${Internal.name};
             import ${Property.name};
 
             public class CustomTask extends DefaultTask {
                 private final Property<String> greeting = getProject().getObjects().property(String.class);
-                 
+
+                @Internal
                 public Property<String> getGreeting() {
                     return greeting;
                 }
@@ -46,6 +56,7 @@ class InstantExecutionBuildSrcIntegrationTest extends AbstractInstantExecutionIn
                 greeting = 'yo instant execution'
             }
         """
+        def instant = newInstantExecutionFixture()
 
         when:
         instantRun("greeting")
@@ -60,5 +71,6 @@ class InstantExecutionBuildSrcIntegrationTest extends AbstractInstantExecutionIn
         then:
         result.assertTasksExecuted(":greeting")
         outputContains("yo instant execution")
+        instant.assertStateLoaded()
     }
 }

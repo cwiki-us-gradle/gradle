@@ -41,7 +41,6 @@ public enum JavaVersion {
      *
      * @since 5.0
      */
-    @Incubating
     VERSION_12,
 
     /**
@@ -53,10 +52,44 @@ public enum JavaVersion {
     VERSION_13,
 
     /**
+     * Java 14 major version.
+     *
+     * @since 6.3
+     */
+    @Incubating
+    VERSION_14,
+
+    /**
+     * Java 15 major version.
+     * Not officially supported by Gradle. Use at your own risk.
+     *
+     * @since 6.3
+     */
+    @Incubating
+    VERSION_15,
+
+    /**
+     * Java 16 major version.
+     * Not officially supported by Gradle. Use at your own risk.
+     *
+     * @since 6.3
+     */
+    @Incubating
+    VERSION_16,
+
+    /**
+     * Java 17 major version.
+     * Not officially supported by Gradle. Use at your own risk.
+     *
+     * @since 6.3
+     */
+    @Incubating
+    VERSION_17,
+
+    /**
      * Higher version of Java.
      * @since 4.7
      */
-    @Incubating
     VERSION_HIGHER;
     // Since Java 9, version should be X instead of 1.X
     // However, to keep backward compatibility, we change from 11
