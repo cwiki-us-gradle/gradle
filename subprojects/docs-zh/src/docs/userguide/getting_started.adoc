@@ -13,9 +13,9 @@
 // limitations under the License.
 
 [[getting_started]]
-= 开始使用
+= Getting Started
 
-任何人都可以从某些地方开始使用，如果你是第一次开始使用 Gradle，那么这个文档就非常适合你开始使用。
+Everyone has to start somewhere and if you're new to Gradle, this is where to begin.
 
 == Before you start
 

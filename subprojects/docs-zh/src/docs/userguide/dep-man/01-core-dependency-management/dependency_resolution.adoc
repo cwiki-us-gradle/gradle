@@ -1,4 +1,4 @@
-= Dependency resolution
+= Understanding dependency resolution
 
 This chapter covers the way dependency resolution works _inside_ Gradle.
 After covering how you can declare <<declaring_repositories.adoc#,repositories>> and <<declaring_dependencies.adoc#,dependencies>>, it makes sense to explain how these declarations come together during dependency resolution.
@@ -25,7 +25,7 @@ That is when the dependency graph contains module that provide the same implemen
 The following sections will explain in detail how Gradle attempts to resolve these conflicts.
 
 The dependency resolution process is highly customizable to meet enterprise requirements.
-For more information, see the chapter on <<controlling_transitive_dependencies.adoc#,Controlling transitive dependencies>>.
+For more information, see the chapter on <<dependency_constraints.adoc#,Controlling transitive dependencies>>.
 
 [[sec:version-conflict]]
 == Version conflict resolution
@@ -94,7 +94,7 @@ A conflict occurs the moment two modules either:
 * Attempt to select incompatible variants,
 * Declare the same capability
 
-Learn more about handling these type of conflicts in <<controlling_transitive_dependencies.adoc#sub:selecting-between-candidates,Selecting between candidates>>.
+Learn more about handling these type of conflicts in <<dependency_capability_conflict.adoc#sub:selecting-between-candidates,Selecting between candidates>>.
 
 [[sec:how-gradle-downloads-deps]]
 == How Gradle retrieves dependency metadata?
@@ -117,7 +117,7 @@ When multiple are defined, they are inspected _in the order they were added_.
 This process results in a list of candidate versions that are then matched to the dynamic version expressed.
 At this point, <<#sub:resolution-strategy,version conflict resolution>> is resumed.
 
-Note that Gradle caches the version information, more information can be found in the section <<declaring_dependency_versions.adoc#sec:controlling-dynamic-version-caching,Controlling dynamic version caching>>.
+Note that Gradle caches the version information, more information can be found in the section <<dynamic_versions.adoc#sec:controlling-dynamic-version-caching,Controlling dynamic version caching>>.
 
 === Obtaining module metadata
 
@@ -226,3 +226,90 @@ This concurrent access is only supported if the different Gradle processes can c
 Gradle keeps track of which artifacts in the dependency cache are accessed.
 Using this information, the cache is periodically (at most every 24 hours) scanned for artifacts that have not been used for more than 30 days.
 Obsolete artifacts are then deleted to ensure the cache does not grow indefinitely.
+
+[[sub:ephemeral-ci-cache]]
+== Dealing with ephemeral builds
+
+It's a common practice to run builds in ephemeral containers.
+A container is typically spawned to only execute a single build before it is destroyed.
+This can become a practical problem when a build depends on a lot of dependencies which each container has to re-download.
+To help with this scenario, Gradle provides a couple of options:
+
+- <<sub:cache_copy,copying the dependency cache>> into each container
+- <<sub:shared-readonly-cache,sharing a read-only dependency cache>> between multiple containers
+
+[[sub:cache_copy]]
+=== Copying and reusing the cache
+
+The dependency cache, both the file and metadata parts, are fully encoded using relative paths.
+This means that it is perfectly possible to copy a cache around and see Gradle benefit from it.
+
+The path that can be copied is `$GRADLE_HOME/caches/modules-<version>`.
+The only constraint is placing it using the same structure at the destination, where the value of `GRADLE_HOME` can be different.
+
+Do not copy the `*.lock` or `gc.properties` files if they exist.
+
+Note that creating the cache and consuming it should be done using compatible Gradle version, as shown in the table below.
+Otherwise the build might still require some interactions with remote repositories to complete missing information, which might be available in a different version.
+If multiple incompatible Gradle versions are in play, all should be used when seeding the cache.
+
+.Dependency cache compatibility
+[%header%autowidth,compact]
+|===
+| Module cache version  | File cache version    | Metadata cache version    | Gradle version(s)
+
+| `modules-2`           | `files-2.1`           | `metadata-2.95`           | Gradle 6.1
+|===
+
+[[sub:shared-readonly-cache]]
+=== Sharing the dependency cache with other Gradle instances
+
+Instead of <<sub:cache_copy,copying the dependency cache into each container>>, it's possible to mount a shared, read-only directory that will act as a dependency cache for all containers.
+This cache, unlike the classical dependency cache, is accessed without locking, making it possible for multiple builds to read from the cache concurrently. It's important that the read-only cache
+is not written to when other builds may be reading from it.
+
+When using the shared read-only cache, Gradle looks for dependencies (artifacts or metadata) in both the writable cache in the local Gradle user home directory and the shared read-only cache.
+If a dependency is present in the read-only cache, it will not be downloaded.
+If a dependency is missing from the read-only cache, it will be downloaded and added to the writable cache.
+In practice, this means that the writable cache will only contain dependencies that are unavailable in the read-only cache.
+
+The read-only cache should be sourced from a Gradle dependency cache that already contains some of the required dependencies.
+The cache can be incomplete; however, an empty shared cache will only add overhead.
+
+NOTE: The shared read-only dependency cache is an incubating feature.
+
+The first step in using a shared dependency cache is to create one by copying of an existing _local_ cache.
+For this you need to follow the <<sub:cache_copy,instructions above>>.
+
+Then set the `GRADLE_RO_DEP_CACHE` environment variable to point to the directory containing the cache:
+
+----
+$GRADLE_RO_DEP_CACHE
+   |-- modules-2 : the read-only dependency cache, should be mounted with read-only privileges
+
+$GRADLE_HOME
+   |-- caches
+         |-- modules-2 : the container specific dependency cache, should be writable
+         |-- ...
+   |-- ...
+----
+
+In a CI environment, it's a good idea to have one build which "seeds" a Gradle dependency cache, which is then _copied_ to a different directory.
+This directory can then be used as the read-only cache for other builds.
+You shouldn't use an existing Gradle installation cache as the read-only cache, because this directory may contain locks and may be modified by the seeding build.
+
+[[sec:programmatic_api]]
+== Accessing the resolution result programmatically
+
+While most users only need access to a "flat list" of files, there are cases where it can be interesting to reason on a _graph_ and get more information about the resolution result:
+
+- for tooling integration, where a model of the dependency graph is required
+- for tasks generating a visual representation (image, `.dot` file, ...) of a dependency graph
+- for tasks providing diagnostics (similar to the `dependencyInsight` task)
+- for tasks which need to perform dependency resolution at execution time (e.g, download files on demand)
+
+For those use cases, Gradle provides lazy, thread-safe APIs, accessible by calling the link:{javadocPath}/org/gradle/api/artifacts/Configuration.html#getIncoming--[Configuration.getIncoming()] method:
+
+- the link:{javadocPath}/org/gradle/api/artifacts/ResolvableDependencies.html#getResolutionResult--[ResolutionResult API] gives access to a resolved dependency graph, whether the resolution was successful or not.
+- the link:{javadocPath}/org/gradle/api/artifacts/ResolvableDependencies.html#getArtifacts--[artifacts API] provides a simple access to the resolved artifacts, untransformed, but with lazy download of artifacts (they would only be downloaded on demand).
+- the link:{javadocPath}/org/gradle/api/artifacts/ResolvableDependencies.html#artifactView-org.gradle.api.Action-[artifact view API] provides an advanced, filtered view of artifacts, possibly <<artifact_transforms.adoc#sec:abm_artifact_transforms,transformed>>.
