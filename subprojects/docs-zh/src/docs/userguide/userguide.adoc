@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-= Gradle 用户手册
+= Gradle User Manual
 
 TIP: Want to learn the tips and tricks top engineering teams use to keep builds fast and performant? https://gradle.com/training/build-cache-deep-dive/?bid=docs-userguide[Register here] for our Build Cache Training.
 
