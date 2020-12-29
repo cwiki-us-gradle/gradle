@@ -130,6 +130,7 @@ include("kotlin-dsl-plugins")
 
 // Internal utility and verification projects
 include("docs")
+include("docs-zh")
 include("samples")
 include("architecture-test")
 include("internal-testing")

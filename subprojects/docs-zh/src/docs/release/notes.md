@@ -2,32 +2,16 @@ The Gradle team is excited to announce Gradle @version@.
 
 This release features [1](), [2](), ... [n](), and more.
 
-We would like to thank the following community contributors to this release of Gradle:
-[Nathan Strong](https://github.com/NathanStrong-Tripwire),
-[Roberto Perez Alcolea](https://github.com/rpalcolea),
-[Tetsuya Ikenaga](https://github.com/ikngtty),
-[Sebastian Schuberth](https://github.com/sschuberth),
-and [Mike Kobit](https://github.com/mkobit).
-
+We would like to thank the following community members for their contributions to this release of Gradle:
 <!-- 
 Include only their name, impactful features should be called out separately below.
  [Some person](https://github.com/some-person)
 -->
 
-<!-- 
-## Cancellable custom tasks
-
-When a build is cancelled (e.g. using CTRL+C), the threads executing each task are interrupted.
-Task authors only need to make their tasks respond to interrupts in order for the task to be cancellable.
-
-details of 1
-
-## 2
-
-details of 2
-
-## n
--->
+[Martin d'Anjou](https://github.com/martinda)
+[Till Krullmann](https://github.com/tkrullmann)
+[Andreas Axelsson](https://github.com/judgeaxl)
+[Pedro Tôrres](https://github.com/t0rr3sp3dr0)
 
 ## Upgrade Instructions
 
@@ -35,70 +19,117 @@ Switch your build to use Gradle @version@ by updating your wrapper:
 
 `./gradlew wrapper --gradle-version=@version@`
 
-See the [Gradle 5.x upgrade guide](userguide/upgrading_version_5.html#changes_@baseVersion@) to learn about deprecations, breaking changes and other considerations when upgrading to Gradle @version@.
+See the [Gradle 6.x upgrade guide](userguide/upgrading_version_6.html#changes_@baseVersion@) to learn about deprecations, breaking changes and other considerations when upgrading to Gradle @version@. 
+
+For Java, Groovy, Kotlin and Android compatibility, see the [full compatibility notes](userguide/compatibility.html).
 
 <!-- Do not add breaking changes or deprecations here! Add them to the upgrade guide instead. --> 
 
-## Introducing subgraph constraints for dependency versions
+## Build reliability improvements
 
-When you declare a dependency to a module that is already on your dependency graph, due to a transitive dependency, you sometimes need to change the version of that module according to your needs.
-So far, this was limited to cases where the existing constraint should be limited further (e.g. choosing a specific version from a range).
-Version constraints can now made into [subgraph constraints](userguide/declaring_dependency_versions.html#sec:declaring_for_subgraph) by using `forSubgraph()`, which will prompt Gradle to ignore the corresponding version constraints defined further down the graph.
-This can, for example, be used to downgrade a version. Subgraph constraints are published to [Gradle Module Metadata](userguide/publishing.html#understanding-gradle-module-md).
+Gradle employs a number of optimizations to ensure that builds are executed as fast as possible.
+These optimizations rely on the inputs and outputs of tasks to be well-defined.
+Gradle already applies some validation to tasks to check whether they are well-defined.
 
-```groovy
-dependencies {
-    implementation('org.apache.hadoop:hadoop-common')
-    implementation('commons-io:commons-io')
-    constraints {
-        // 'hadoop-common:3.2.0' brings in 'commons-io:2.5'
-        implementation('org.apache.hadoop:hadoop-common:3.2.0') 
-        implementation('commons-io:commons-io:2.4') {
-            version { forSubgraph() } // '2.4' takes precedence
-        }
-    }
+### Disable optimizations for validation problems
+
+If a task is found to be invalid, Gradle will now execute it without the benefit of parallel execution, up-to-date checks and the build cache.
+For more information see the [user manual on runtime validation](userguide/more_about_tasks.html#sec:task_input_validation).
+
+### Validate missing dependencies between tasks
+
+One of the potential problems now flagged is a task that consumes the output produced by another without declaring an [explicit or inferred task dependency](userguide/more_about_tasks.html#sec:link_output_dir_to_input_files).
+Gradle now detects the missing dependency between the consumer and the producer and emits a warning in that case.
+For more information see the [user manual on input and output validation](userguide/more_about_tasks.html#sec:task_input_output_validation). 
+
+## Plugin development improvements
+
+### Included plugin builds
+
+Developing plugins as part of a composite build was so far only possible for project plugins.
+Settings plugins always had to be developed in isolation and published to a binary repository.
+
+This release introduces a new DSL construct in the settings file for including plugin builds.
+Build included like that can provide both project and settings plugins.
+```
+pluginManagement {
+    includeBuild("../my-settings-plugin")
+}
+plugins {
+    id("my.settings-plugin") 
 }
 ```
+The above example assumes that the included build defines a settings plugin with the id `my.settings-plugin`.
 
-Subgraph constraints can also be defined in a platform.
-Theses constraints will be _inherited_ when depending on the platform and treated as if they were defined directly.
-
-```groovy
-project(':platform') {
-    dependencies {
-        constraints {
-            api('org.apache.hadoop:hadoop-common:3.2.0') 
-            api('commons-io:commons-io:2.4') {
-                version { forSubgraph() } 
-            }
-        }
-    }
-}
-
-dependencies {
-    // 'commons-io:commons-io:2.4' win over '2.5' because the platform defines the constraint as 'forSubgraph()'
-    implementation(platform(project(':platform')))
-    implementation('org.apache.hadoop:hadoop-common')
-    implementation('commons-io:commons-io')
-}
+Library components produced by builds included though the `pluginManagement` block are not automatically visible to the including build.
+However, the same build can be included as plugin build and normal library build:
 ```
+pluginManagement {
+    // contributes plugins
+    includeBuild("../project-with-plugin-and-library") 
+}
+// contributes libraries
+includeBuild("../project-with-plugin-and-library") 
+```
+This distinction reflects what Gradle offers for repository declarations - 
+repositories are specified separately for plugin dependencies and for production dependencies.
 
-## Support for Java 13 EA
+<!-- 
 
-Gradle now supports running with Java 13 EA (tested with OpenJDK build 13-ea+32).
+================== TEMPLATE ==============================
 
-## More robust file deletion on Windows
+<a name="FILL-IN-KEY-AREA"></a>
+### FILL-IN-KEY-AREA improvements
 
-Deleting complex file hierarchies on Windows can sometimes be tricky, and errors like `Unable to delete directory ...` can happen at times.
-To avoid these errors, Gradle has been employing workarounds in some but not all cases when it had to remove files.
-From now on Gradle uses these workarounds every time it removes file hierarchies.
-The two most important cases that are now covered are cleaning stale output files of a task, and removing previous outputs before loading fresh ones from the build cache.
+<<<FILL IN CONTEXT FOR KEY AREA>>>
+Example:
+> The [configuration cache](userguide/configuration_cache.html) improves build performance by caching the result of
+> the configuration phase. Using the configuration cache, Gradle can skip the configuration phase entirely when
+> nothing that affects the build configuration has changed.
+
+#### FILL-IN-FEATURE
+> HIGHLIGHT the usecase or existing problem the feature solves
+> EXPLAIN how the new release addresses that problem or use case
+> PROVIDE a screenshot or snippet illustrating the new feature, if applicable
+> LINK to the full documentation for more details 
+
+================== END TEMPLATE ==========================
+
+
+==========================================================
+ADD RELEASE FEATURES BELOW
+vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+
+
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ADD RELEASE FEATURES ABOVE
+==========================================================
+
+-->
 
 ## Promoted features
 Promoted features are features that were incubating in previous versions of Gradle but are now supported and subject to backwards compatibility.
 See the User Manual section on the “[Feature Lifecycle](userguide/feature_lifecycle.html)” for more information.
 
-The following are the features that have been promoted in this Gradle release.
+In Gradle 7.0 we moved the following classes out of incubation phase.
+
+- org.gradle.tooling.model.eclipse.EclipseRuntime
+- org.gradle.tooling.model.eclipse.EclipseWorkspace
+- org.gradle.tooling.model.eclipse.EclipseWorkspaceProject
+- org.gradle.tooling.model.eclipse.RunClosedProjectBuildDependencies
+
+- org.gradle.tooling.events.OperationType.TestOutput
+- org.gradle.tooling.events.test.Destination
+- org.gradle.tooling.events.test.TestOutputDescriptor
+- org.gradle.tooling.events.test.TestOutputEvent
+
+- org.gradle.process.ExecOperations
+
+- org.gradle.api.model.ObjectFactory.directoryProperty
+- org.gradle.api.model.ObjectFactory.fileCollection
+- org.gradle.api.model.ObjectFactory.fileProperty
+- org.gradle.api.model.ObjectFactory.sourceDirectorySet
 
 <!--
 ### Example promoted
