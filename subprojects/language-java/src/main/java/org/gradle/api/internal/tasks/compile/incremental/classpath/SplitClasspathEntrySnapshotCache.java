@@ -16,33 +16,32 @@
 
 package org.gradle.api.internal.tasks.compile.incremental.classpath;
 
-import org.gradle.internal.Factory;
+import org.gradle.cache.GlobalCacheLocations;
 import org.gradle.internal.concurrent.CompositeStoppable;
 import org.gradle.internal.hash.HashCode;
-import org.gradle.internal.vfs.AdditiveCacheLocations;
 
 import java.io.Closeable;
 import java.io.File;
-import java.io.IOException;
+import java.util.function.Function;
 
 /**
  * A {@link ClasspathEntrySnapshotCache} that delegates to the global cache for files that are known to be immutable.
  * All other files are cached in the local cache. Closing this cache only closes the local delegate, not the global one.
  */
 public class SplitClasspathEntrySnapshotCache implements ClasspathEntrySnapshotCache, Closeable {
-    private final AdditiveCacheLocations additiveCacheLocations;
+    private final GlobalCacheLocations globalCacheLocations;
     private final ClasspathEntrySnapshotCache globalCache;
     private final ClasspathEntrySnapshotCache localCache;
 
-    public SplitClasspathEntrySnapshotCache(AdditiveCacheLocations additiveCacheLocations, ClasspathEntrySnapshotCache globalCache, ClasspathEntrySnapshotCache localCache) {
-        this.additiveCacheLocations = additiveCacheLocations;
+    public SplitClasspathEntrySnapshotCache(GlobalCacheLocations globalCacheLocations, ClasspathEntrySnapshotCache globalCache, ClasspathEntrySnapshotCache localCache) {
+        this.globalCacheLocations = globalCacheLocations;
         this.globalCache = globalCache;
         this.localCache = localCache;
     }
 
     @Override
     public ClasspathEntrySnapshot get(File file, HashCode hash) {
-        if (additiveCacheLocations.isInsideAdditiveCache(file.getPath())) {
+        if (globalCacheLocations.isInsideGlobalCache(file.getPath())) {
             return globalCache.get(file, hash);
         } else {
             return localCache.get(file, hash);
@@ -50,16 +49,30 @@ public class SplitClasspathEntrySnapshotCache implements ClasspathEntrySnapshotC
     }
 
     @Override
-    public ClasspathEntrySnapshot get(File entry, Factory<ClasspathEntrySnapshot> factory) {
-        if (additiveCacheLocations.isInsideAdditiveCache(entry.getPath())) {
-            return globalCache.get(entry, factory);
+    public ClasspathEntrySnapshot get(File entry, Function<? super File, ? extends ClasspathEntrySnapshot> factory) {
+        return getCacheFor(entry).get(entry, factory);
+    }
+
+    @Override
+    public ClasspathEntrySnapshot getIfPresent(File key) {
+        return getCacheFor(key).getIfPresent(key);
+    }
+
+    @Override
+    public void put(File key, ClasspathEntrySnapshot value) {
+        getCacheFor(key).put(key, value);
+    }
+
+    private ClasspathEntrySnapshotCache getCacheFor(File location) {
+        if (globalCacheLocations.isInsideGlobalCache(location.getPath())) {
+            return globalCache;
         } else {
-            return localCache.get(entry, factory);
+            return localCache;
         }
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
         CompositeStoppable.stoppable(localCache).stop();
     }
 }

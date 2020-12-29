@@ -34,7 +34,9 @@ import javax.annotation.Nullable;
  * compilation of the source files in the 'java' {@link SourceDirectorySet}:
  *
  * <pre class='autoTested'>
- * apply plugin: 'java'
+ * plugins {
+ *     id 'java'
+ * }
  *
  * sourceSets {
  *   main {
@@ -275,24 +277,6 @@ public interface SourceSet extends ExtensionAware {
     String getTaskName(@Nullable String verb, @Nullable String target);
 
     /**
-     * Returns the name of the compile configuration for this source set.
-     *
-     * @return The configuration name
-     * @deprecated Use {@link #getImplementationConfigurationName()}, {@link #getApiConfigurationName()}, {@link #getCompileClasspathConfigurationName()} or {@link #getApiElementsConfigurationName()} instead.
-     */
-    @Deprecated
-    String getCompileConfigurationName();
-
-    /**
-     * Returns the name of the runtime configuration for this source set.
-     *
-     * @return The runtime configuration name
-     * @deprecated Use {@link #getRuntimeOnlyConfigurationName()}, {@link #getRuntimeClasspathConfigurationName()} or {@link #getRuntimeElementsConfigurationName()} instead.
-     */
-    @Deprecated
-    String getRuntimeConfigurationName();
-
-    /**
      * Returns the name of the compile only configuration for this source set.
      *
      * @return The compile only configuration name
@@ -300,6 +284,16 @@ public interface SourceSet extends ExtensionAware {
      * @since 2.12
      */
     String getCompileOnlyConfigurationName();
+
+    /**
+     * Returns the name of the 'compile only api' configuration for this source set.
+     *
+     * @return The 'compile only api' configuration name
+     *
+     * @since 6.7
+     */
+    @Incubating
+    String getCompileOnlyApiConfigurationName();
 
     /**
      * Returns the name of the compile classpath configuration for this source set.
@@ -400,4 +394,14 @@ public interface SourceSet extends ExtensionAware {
      */
     @Incubating
     String getSourcesElementsConfigurationName();
+
+    /**
+     * Determines if this source set is the main source set
+     *
+     * @since 6.7
+     */
+    @Incubating
+    static boolean isMain(SourceSet sourceSet) {
+        return MAIN_SOURCE_SET_NAME.equals(sourceSet.getName());
+    }
 }

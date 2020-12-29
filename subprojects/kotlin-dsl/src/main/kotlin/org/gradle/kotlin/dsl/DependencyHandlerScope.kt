@@ -24,6 +24,7 @@ import org.gradle.api.artifacts.ExternalModuleDependency
 import org.gradle.api.artifacts.ModuleDependency
 import org.gradle.api.artifacts.dsl.DependencyConstraintHandler
 import org.gradle.api.artifacts.dsl.DependencyHandler
+import org.gradle.api.provider.Provider
 import org.gradle.kotlin.dsl.support.delegates.DependencyHandlerDelegate
 
 
@@ -57,9 +58,8 @@ private constructor(
      *
      * @since 6.3
      */
-    @Incubating
     fun constraints(configureAction: DependencyConstraintHandlerScope.() -> Unit) {
-        super.constraints { t -> configureAction(DependencyConstraintHandlerScope.of(t)) }
+        super.constraints { configureAction(DependencyConstraintHandlerScope.of(this)) }
     }
 
     /**
@@ -225,6 +225,56 @@ private constructor(
      */
     inline operator fun <T : ModuleDependency> Configuration.invoke(dependency: T, dependencyConfiguration: T.() -> Unit): T =
         add(name, dependency, dependencyConfiguration)
+
+    /**
+     * Adds a dependency provider to the given configuration.
+     *
+     * @param dependency the dependency provider to be added.
+     * @param dependencyConfiguration the configuration to be applied to the dependency
+     *
+     * @see [DependencyHandler.addProvider]
+     * @since 7.0
+     */
+    @Incubating
+    operator fun <T : Any> Configuration.invoke(dependency: Provider<T>, dependencyConfiguration: ExternalModuleDependency.() -> Unit) =
+        addProvider(name, dependency, dependencyConfiguration)
+
+    /**
+     * Adds a dependency provider to the given configuration.
+     *
+     * @param dependency the dependency provider to be added.
+     *
+     * @see [DependencyHandler.addProvider]
+     * @since 7.0
+     */
+    @Incubating
+    operator fun <T : Any> Configuration.invoke(dependency: Provider<T>) =
+        addProvider(name, dependency)
+
+    /**
+     * Adds a dependency provider to the given configuration.
+     *
+     * @param dependency the dependency provider to be added.
+     * @param dependencyConfiguration the configuration to be applied to the dependency
+     *
+     * @see [DependencyHandler.addProvider]
+     * @since 7.0
+     */
+    @Incubating
+    operator fun <T : Any> String.invoke(dependency: Provider<T>, dependencyConfiguration: ExternalModuleDependency.() -> Unit) =
+        addProvider(this, dependency, dependencyConfiguration)
+
+    /**
+     * Adds a dependency provider to the given configuration.
+     *
+     * @param dependency the dependency provider to be added.
+     *
+     * @see [DependencyHandler.addProvider]
+     * @since 7.0
+     */
+    @Incubating
+    operator fun <T : Any> String.invoke(dependency: Provider<T>) =
+        addProvider(this, dependency)
 
     /**
      * Configures the dependencies.

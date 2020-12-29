@@ -26,8 +26,11 @@ import org.gradle.api.distribution.Distribution;
 import org.gradle.api.distribution.DistributionContainer;
 import org.gradle.api.distribution.plugins.DistributionPlugin;
 import org.gradle.api.file.CopySpec;
+import org.gradle.api.file.FileCollection;
 import org.gradle.api.plugins.internal.DefaultApplicationPluginConvention;
 import org.gradle.api.plugins.internal.DefaultJavaApplication;
+import org.gradle.api.provider.Provider;
+import org.gradle.api.provider.ProviderFactory;
 import org.gradle.api.tasks.JavaExec;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.Sync;
@@ -36,10 +39,13 @@ import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.application.CreateStartScripts;
 import org.gradle.api.tasks.bundling.Jar;
 import org.gradle.api.tasks.compile.JavaCompile;
+import org.gradle.jvm.toolchain.JavaToolchainService;
+import org.gradle.jvm.toolchain.JavaToolchainSpec;
 
 import java.io.File;
 import java.util.Collections;
 import java.util.concurrent.Callable;
+import java.util.function.BiFunction;
 
 import static org.gradle.api.distribution.plugins.DistributionPlugin.TASK_INSTALL_NAME;
 
@@ -68,8 +74,7 @@ public class ApplicationPlugin implements Plugin<Project> {
         addRunTask(project, pluginExtension, pluginConvention);
         addCreateScriptsTask(project, pluginExtension, pluginConvention);
         configureJavaCompileTask(tasks.named(JavaPlugin.COMPILE_JAVA_TASK_NAME, JavaCompile.class), pluginExtension);
-        configureJarTask(tasks.named(JavaPlugin.JAR_TASK_NAME, Jar.class), pluginExtension);
-        configureInstallTask(tasks.named(TASK_INSTALL_NAME, Sync.class), pluginConvention);
+        configureInstallTask(project.getProviders(), tasks.named(TASK_INSTALL_NAME, Sync.class), pluginConvention);
 
         DistributionContainer distributions = (DistributionContainer) project.getExtensions().getByName("distributions");
         Distribution mainDistribution = distributions.getByName(DistributionPlugin.MAIN_DISTRIBUTION_NAME);
@@ -80,24 +85,34 @@ public class ApplicationPlugin implements Plugin<Project> {
         javaCompile.configure(j -> j.getOptions().getJavaModuleMainClass().convention(pluginExtension.getMainClass()));
     }
 
+    // Enable this back for Gradle 7.0
     private void configureJarTask(TaskProvider<Jar> jar, JavaApplication pluginExtension) {
         jar.configure(j -> j.getManifest().attributes(Collections.singletonMap("Main-Class", pluginExtension.getMainClass())));
     }
 
-    private void configureInstallTask(TaskProvider<Sync> installTask, ApplicationPluginConvention pluginConvention) {
-        installTask.configure(task -> task.doFirst("don't overwrite existing directories", new PreventDestinationOverwrite(pluginConvention)));
+    private void configureInstallTask(ProviderFactory providers, TaskProvider<Sync> installTask, ApplicationPluginConvention pluginConvention) {
+        installTask.configure(task -> task.doFirst(
+            "don't overwrite existing directories",
+            new PreventDestinationOverwrite(
+                providers.provider(pluginConvention::getApplicationName),
+                providers.provider(pluginConvention::getExecutableDir)
+            )
+        ));
     }
 
     private static class PreventDestinationOverwrite implements Action<Task> {
-        private final ApplicationPluginConvention pluginConvention;
+        private final Provider<String> applicationName;
+        private final Provider<String> executableDir;
 
-        private PreventDestinationOverwrite(ApplicationPluginConvention pluginConvention) {
-            this.pluginConvention = pluginConvention;
+        private PreventDestinationOverwrite(Provider<String> applicationName, Provider<String> executableDir) {
+            this.applicationName = applicationName;
+            this.executableDir = executableDir;
         }
+
 
         @Override
         public void execute(Task task) {
-            Sync sync = (Sync)task;
+            Sync sync = (Sync) task;
             File destinationDir = sync.getDestinationDir();
             if (destinationDir.isDirectory()) {
                 String[] children = destinationDir.list();
@@ -105,14 +120,14 @@ public class ApplicationPlugin implements Plugin<Project> {
                     throw new UncheckedIOException("Could not list directory " + destinationDir);
                 }
                 if (children.length > 0) {
-                    if (!new File(destinationDir, "lib").isDirectory() || !new File(destinationDir, pluginConvention.getExecutableDir()).isDirectory()) {
+                    if (!new File(destinationDir, "lib").isDirectory() || !new File(destinationDir, executableDir.get()).isDirectory()) {
                         throw new GradleException("The specified installation directory \'"
-                                + destinationDir
-                                + "\' is neither empty nor does it contain an installation for \'"
-                                + pluginConvention.getApplicationName()
-                                + "\'.\n"
-                                + "If you really want to install to this directory, delete it and run the install task again.\n"
-                                + "Alternatively, choose a different installation directory.");
+                            + destinationDir
+                            + "\' is neither empty nor does it contain an installation for \'"
+                            + applicationName.get()
+                            + "\'.\n"
+                            + "If you really want to install to this directory, delete it and run the install task again.\n"
+                            + "Alternatively, choose a different installation directory.");
                     }
                 }
             }
@@ -135,22 +150,35 @@ public class ApplicationPlugin implements Plugin<Project> {
             run.setDescription("Runs this project as a JVM application");
             run.setGroup(APPLICATION_GROUP);
 
-            JavaPluginConvention javaPluginConvention = project.getConvention().getPlugin(JavaPluginConvention.class);
-            run.setClasspath(javaPluginConvention.getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME).getRuntimeClasspath());
+            FileCollection runtimeClasspath = project.files().from((Callable<FileCollection>) () -> {
+                if (run.getMainModule().isPresent()) {
+                    return jarsOnlyRuntimeClasspath(project);
+                } else {
+                    return runtimeClasspath(project);
+                }
+            });
+            run.setClasspath(runtimeClasspath);
             run.getMainModule().set(pluginExtension.getMainModule());
             run.getMainClass().set(pluginExtension.getMainClass());
             run.getConventionMapping().map("jvmArgs", pluginConvention::getApplicationDefaultJvmArgs);
 
             JavaPluginExtension javaPluginExtension = project.getExtensions().getByType(JavaPluginExtension.class);
-            run.getModularClasspathHandling().getInferModulePath().convention(javaPluginExtension.getModularClasspathHandling().getInferModulePath());
+            run.getModularity().getInferModulePath().convention(javaPluginExtension.getModularity().getInferModulePath());
+            run.getJavaLauncher().convention(getToolchainTool(project, JavaToolchainService::launcherFor));
         });
+    }
+
+    private <T> Provider<T> getToolchainTool(Project project, BiFunction<JavaToolchainService, JavaToolchainSpec, Provider<T>> toolMapper) {
+        final JavaPluginExtension extension = project.getExtensions().getByType(JavaPluginExtension.class);
+        final JavaToolchainService service = project.getExtensions().getByType(JavaToolchainService.class);
+        return toolMapper.apply(service, extension.getToolchain());
     }
 
     // @Todo: refactor this task configuration to extend a copy task and use replace tokens
     private void addCreateScriptsTask(Project project, JavaApplication pluginExtension, ApplicationPluginConvention pluginConvention) {
         project.getTasks().register(TASK_START_SCRIPTS_NAME, CreateStartScripts.class, startScripts -> {
             startScripts.setDescription("Creates OS specific scripts to run the project as a JVM application.");
-            startScripts.setClasspath(project.getTasks().getAt(JavaPlugin.JAR_TASK_NAME).getOutputs().getFiles().plus(project.getConfigurations().getByName(JavaPlugin.RUNTIME_CLASSPATH_CONFIGURATION_NAME)));
+            startScripts.setClasspath(jarsOnlyRuntimeClasspath(project));
 
             startScripts.getMainModule().set(pluginExtension.getMainModule());
             startScripts.getMainClass().set(pluginExtension.getMainClass());
@@ -164,8 +192,16 @@ public class ApplicationPlugin implements Plugin<Project> {
             startScripts.getConventionMapping().map("defaultJvmOpts", pluginConvention::getApplicationDefaultJvmArgs);
 
             JavaPluginExtension javaPluginExtension = project.getExtensions().getByType(JavaPluginExtension.class);
-            startScripts.getModularClasspathHandling().getInferModulePath().convention(javaPluginExtension.getModularClasspathHandling().getInferModulePath());
+            startScripts.getModularity().getInferModulePath().convention(javaPluginExtension.getModularity().getInferModulePath());
         });
+    }
+
+    private FileCollection runtimeClasspath(Project project) {
+        return project.getConvention().getPlugin(JavaPluginConvention.class).getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME).getRuntimeClasspath();
+    }
+
+    private FileCollection jarsOnlyRuntimeClasspath(Project project) {
+        return project.getTasks().getAt(JavaPlugin.JAR_TASK_NAME).getOutputs().getFiles().plus(project.getConfigurations().getByName(JavaPlugin.RUNTIME_CLASSPATH_CONFIGURATION_NAME));
     }
 
     private CopySpec configureDistribution(Project project, Distribution mainDistribution, ApplicationPluginConvention pluginConvention) {

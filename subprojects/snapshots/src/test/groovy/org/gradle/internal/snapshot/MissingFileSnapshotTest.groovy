@@ -16,9 +16,11 @@
 
 package org.gradle.internal.snapshot
 
-class MissingFileSnapshotTest extends AbstractCompleteSnapshotWithoutChildrenTest {
+import org.gradle.internal.file.FileMetadata.AccessType
+
+class MissingFileSnapshotTest extends AbstractFileSystemLeafSnapshotTest {
     @Override
-    protected CompleteFileSystemLocationSnapshot createInitialRootNode(String absolutePath) {
-        return new MissingFileSnapshot(absolutePath)
+    protected MissingFileSnapshot createInitialRootNode(String absolutePath) {
+        return new MissingFileSnapshot(absolutePath, AccessType.DIRECT)
     }
 }

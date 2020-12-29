@@ -18,7 +18,6 @@ package org.gradle.java
 
 import org.codehaus.groovy.control.CompilerConfiguration
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import spock.lang.Unroll
 
 import java.util.jar.JarEntry
@@ -120,18 +119,13 @@ class JavaLibraryCompilationIntegrationTest extends AbstractIntegrationSpec {
         skipped ':b:processResources'
     }
 
-    @Unroll
     def "uses the API of a library when compiling production code against it using the #configuration configuration"() {
-        if (configuration == 'compile') {
-            executer.expectDeprecationWarning()
-        }
-
         given:
         subproject('a') {
             'build.gradle'("""
                 apply plugin: 'java'
                 dependencies {
-                    $configuration project(':b')
+                    implementation project(':b')
                 }
             """)
             src {
@@ -162,9 +156,6 @@ class JavaLibraryCompilationIntegrationTest extends AbstractIntegrationSpec {
         then:
         executedAndNotSkipped ':b:compileJava'
         notExecuted ':b:processResources', ':b:classes', ':b:jar'
-
-        where:
-        configuration << ['compile', 'implementation']
     }
 
     @Unroll
@@ -219,18 +210,13 @@ class JavaLibraryCompilationIntegrationTest extends AbstractIntegrationSpec {
         true                      | _
     }
 
-    @Unroll
     def "uses the API of a library when compiling tests against it using the #configuration configuration"() {
-        if (configuration == 'testCompile') {
-            executer.expectDeprecationWarning()
-        }
-
         given:
         subproject('a') {
             'build.gradle'("""
                 apply plugin: 'java'
                 dependencies {
-                    $configuration project(':b')
+                    testImplementation project(':b')
                 }
             """)
             src {
@@ -261,9 +247,6 @@ class JavaLibraryCompilationIntegrationTest extends AbstractIntegrationSpec {
         then:
         executedAndNotSkipped ':b:compileJava'
         notExecuted ':b:processResources', ':b:classes', ':b:jar'
-
-        where:
-        configuration << ['testCompile', 'testImplementation']
     }
 
     @Unroll
@@ -341,7 +324,6 @@ class JavaLibraryCompilationIntegrationTest extends AbstractIntegrationSpec {
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution
     def "doesn't recompile consumer if implementation dependency of producer changed [compileClasspathPackaging=#compileClasspathPackaging]"() {
         toggleCompileClasspathPackaging(compileClasspathPackaging)
 
@@ -418,11 +400,11 @@ class JavaLibraryCompilationIntegrationTest extends AbstractIntegrationSpec {
         settingsFile << "include 'a', 'b'"
         file('a/build.gradle') << """
             apply plugin: 'java'
-            
+
             dependencies {
                 implementation project(':b')
             }
-            
+
             task processDependency {
                 def lazyInputs = configurations.runtimeClasspath.incoming.artifactView {
                     attributes{ attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements, LibraryElements.${token})) }

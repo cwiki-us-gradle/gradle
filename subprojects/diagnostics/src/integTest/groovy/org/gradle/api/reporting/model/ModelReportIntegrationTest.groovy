@@ -17,9 +17,9 @@
 package org.gradle.api.reporting.model
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.UnsupportedWithInstantExecution
+import org.gradle.integtests.fixtures.UnsupportedWithConfigurationCache
 
-@UnsupportedWithInstantExecution(because = "software model")
+@UnsupportedWithConfigurationCache(because = "software model")
 class ModelReportIntegrationTest extends AbstractIntegrationSpec {
 
     def "displays basic structure of an empty project"() {
@@ -39,6 +39,7 @@ class ModelReportIntegrationTest extends AbstractIntegrationSpec {
                     dependencies()
                     dependencyInsight()
                     dependentComponents()
+                    javaToolchains()
                     help()
                     init()
                     model()
@@ -219,6 +220,7 @@ model {
     //If you're changing this you will also need to change: src/snippets/modelRules/basicRuleSourcePlugin/basicRuleSourcePlugin-model-task.out
     def "displays a report in the correct format"() {
         given:
+        settingsFile << "rootProject.name = 'test'"
         buildFile << """
 
 @Managed
@@ -253,7 +255,7 @@ model {
 
         then:
         def modelReportOutput = ModelReportOutput.from(output)
-        modelReportOutput.hasTitle("Root project")
+        modelReportOutput.hasTitle("Root project 'test'")
 
         and:
         modelReportOutput.nodeContentEquals('''
@@ -333,6 +335,12 @@ model {
           | Type:   \torg.gradle.buildinit.tasks.InitBuild
           | Value:  \ttask ':init\'
           | Creator: \tProject.<init>.tasks.init()
+          | Rules:
+             ⤷ copyToTaskContainer
+    + javaToolchains
+          | Type:   \torg.gradle.jvm.toolchain.internal.task.ShowToolchainsTask
+          | Value:  \ttask ':javaToolchains\'
+          | Creator: \tProject.<init>.tasks.javaToolchains()
           | Rules:
              ⤷ copyToTaskContainer
     + model

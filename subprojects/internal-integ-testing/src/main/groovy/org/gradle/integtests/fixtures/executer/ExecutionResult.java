@@ -34,9 +34,8 @@ public interface ExecutionResult {
      * Stdout of the Gradle execution, normalized to use new-line char as line separator. Excludes warnings about deprecated or incubating features used to run the build.
      *
      * <ul>
-     *     <li>Removes warning about running on Java 7.</li>
      *     <li>Removes warning about running using configure on demand or parallel execution.</li>
-     *     <li>Removes notice about starting the daemon.</li>
+     *     <li>Removes notice about starting or stopping the daemon.</li>
      *     <li>Normalizes build time to 1 second.
      * </ul>
      *
@@ -183,4 +182,9 @@ public interface ExecutionResult {
      * Asserts that the given task has not been skipped.
      */
     ExecutionResult assertTaskNotSkipped(String taskPath);
+
+    /**
+     * Asserts that the important information from this result has been verified by the test.
+     */
+    void assertResultVisited();
 }

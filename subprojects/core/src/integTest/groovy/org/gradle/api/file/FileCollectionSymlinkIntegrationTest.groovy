@@ -20,7 +20,6 @@ import org.gradle.api.tasks.CompileClasspath
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ToBeFixedForVfsRetention
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
 import spock.lang.Issue
@@ -32,7 +31,6 @@ import static org.gradle.work.ChangeType.MODIFIED
 
 @Unroll
 @Requires(TestPrecondition.SYMLINKS)
-@ToBeFixedForVfsRetention(because = "https://github.com/gradle/gradle/issues/11851")
 class FileCollectionSymlinkIntegrationTest extends AbstractIntegrationSpec {
 
     def "#desc can handle symlinks"() {
@@ -58,7 +56,6 @@ class FileCollectionSymlinkIntegrationTest extends AbstractIntegrationSpec {
         """
 
         when:
-        maybeDeprecated(code)
         run()
 
         then:
@@ -69,7 +66,6 @@ class FileCollectionSymlinkIntegrationTest extends AbstractIntegrationSpec {
         "project.files()"                    | "project.files(file, symlink, symlinked)"
         "project.fileTree()"                 | "project.fileTree(baseDir)"
         "project.layout.files()"             | "project.layout.files(file, symlink, symlinked)"
-        "project.layout.configurableFiles()" | "project.layout.configurableFiles(file, symlink, symlinked)"
         "project.objects.fileCollection()"   | "project.objects.fileCollection().from(file, symlink, symlinked)"
     }
 
@@ -178,7 +174,7 @@ class FileCollectionSymlinkIntegrationTest extends AbstractIntegrationSpec {
         target.createFile()
         run 'producesLink'
         then:
-        skipped ':producesLink'
+        executedAndNotSkipped ':producesLink'
     }
 
     @Issue('https://github.com/gradle/gradle/issues/1365')
@@ -466,11 +462,5 @@ class FileCollectionSymlinkIntegrationTest extends AbstractIntegrationSpec {
         fails 'brokenDirectoryWithSkipWhenEmpty'
         then:
         failure.assertHasCause("Couldn't follow symbolic link '${brokenInputFile}'.")
-    }
-
-    void maybeDeprecated(String expression) {
-        if (expression.contains("configurableFiles")) {
-            executer.expectDeprecationWarning()
-        }
     }
 }

@@ -20,6 +20,9 @@ import org.gradle.api.Action;
 import org.gradle.api.Project;
 import org.gradle.api.ProjectEvaluationListener;
 import org.gradle.api.UnknownProjectException;
+import org.gradle.api.artifacts.ConfigurationContainer;
+import org.gradle.api.artifacts.dsl.DependencyHandler;
+import org.gradle.api.artifacts.dsl.RepositoryHandler;
 import org.gradle.api.attributes.Attribute;
 import org.gradle.api.internal.DomainObjectContext;
 import org.gradle.api.internal.GradleInternal;
@@ -45,7 +48,7 @@ import org.gradle.util.Path;
 
 import javax.annotation.Nullable;
 
-@UsedByScanPlugin
+@UsedByScanPlugin("scan, test-retry")
 public interface ProjectInternal extends Project, ProjectIdentifier, HasScriptServices, DomainObjectContext, DependencyMetaDataProvider, ModelRegistryScope, PluginAwareInternal {
 
     // These constants are defined here and not with the rest of their kind in HelpTasksPlugin because they are referenced
@@ -56,6 +59,7 @@ public interface ProjectInternal extends Project, ProjectIdentifier, HasScriptSe
 
     Attribute<String> STATUS_ATTRIBUTE = Attribute.of("org.gradle.status", String.class);
 
+    @Nullable
     @Override
     ProjectInternal getParent();
 
@@ -84,6 +88,7 @@ public interface ProjectInternal extends Project, ProjectIdentifier, HasScriptSe
     DynamicObject getInheritedScope();
 
     @Override
+    @UsedByScanPlugin("test-distribution, test-retry")
     GradleInternal getGradle();
 
     ProjectEvaluationListener getProjectEvaluationBroadcaster();
@@ -94,7 +99,7 @@ public interface ProjectInternal extends Project, ProjectIdentifier, HasScriptSe
 
     FileResolver getFileResolver();
 
-    @UsedByScanPlugin
+    @UsedByScanPlugin("scan, test-retry")
     ServiceRegistry getServices();
 
     ServiceRegistryFactory getServiceRegistryFactory();
@@ -148,4 +153,19 @@ public interface ProjectInternal extends Project, ProjectIdentifier, HasScriptSe
 
     @Override
     ScriptHandlerInternal getBuildscript();
+
+    /**
+     * Returns a dependency resolver which can be used to resolve
+     * dependencies in isolation from the project itself. This is
+     * particularly useful if the repositories or configurations
+     * needed for resolution shouldn't leak to the project state.
+     * @return a detached resolver
+     */
+    DetachedResolver newDetachedResolver();
+
+    interface DetachedResolver {
+        RepositoryHandler getRepositories();
+        DependencyHandler getDependencies();
+        ConfigurationContainer getConfigurations();
+    }
 }

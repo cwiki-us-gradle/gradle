@@ -48,6 +48,7 @@ public class DefaultJvmLanguageCompileSpec implements JvmLanguageCompileSpec, Se
     public File getDestinationDir() {
         return destinationDir;
     }
+
     @Override
     public void setDestinationDir(File destinationDir) {
         this.destinationDir = destinationDir;
@@ -98,22 +99,24 @@ public class DefaultJvmLanguageCompileSpec implements JvmLanguageCompileSpec, Se
     }
 
     @Override
+    @Nullable
     public String getSourceCompatibility() {
         return sourceCompatibility;
     }
 
     @Override
-    public void setSourceCompatibility(String sourceCompatibility) {
+    public void setSourceCompatibility(@Nullable String sourceCompatibility) {
         this.sourceCompatibility = sourceCompatibility;
     }
 
     @Override
+    @Nullable
     public String getTargetCompatibility() {
         return targetCompatibility;
     }
 
     @Override
-    public void setTargetCompatibility(String targetCompatibility) {
+    public void setTargetCompatibility(@Nullable String targetCompatibility) {
         this.targetCompatibility = targetCompatibility;
     }
 

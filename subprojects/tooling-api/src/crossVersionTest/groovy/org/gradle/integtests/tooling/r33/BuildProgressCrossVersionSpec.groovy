@@ -19,12 +19,13 @@ package org.gradle.integtests.tooling.r33
 import org.gradle.integtests.tooling.fixture.ProgressEvents
 import org.gradle.integtests.tooling.fixture.TargetGradleVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
+import org.gradle.integtests.tooling.fixture.WithOldConfigurationsSupport
 import org.gradle.tooling.BuildException
 import org.gradle.tooling.ProjectConnection
 import org.gradle.tooling.events.OperationType
 
 @TargetGradleVersion(">=3.3")
-class BuildProgressCrossVersionSpec extends ToolingApiSpecification {
+class BuildProgressCrossVersionSpec extends ToolingApiSpecification implements WithOldConfigurationsSupport {
 
     @TargetGradleVersion(">=3.3 <4.0")
     def "generates events for project configuration where project configuration is nested"() {
@@ -35,7 +36,7 @@ class BuildProgressCrossVersionSpec extends ToolingApiSpecification {
         """
         buildFile << """
             allprojects { apply plugin: 'java' }
-            
+
             evaluationDependsOn(':a')
 """
         file("a/build.gradle") << """
@@ -72,15 +73,15 @@ class BuildProgressCrossVersionSpec extends ToolingApiSpecification {
     def "generates events for dependency resolution"() {
         given:
         buildFile << """
-            allprojects { 
+            allprojects {
                 apply plugin: 'java'
                 ${mavenCentralRepository()}
-                dependencies { testCompile 'junit:junit:4.12' }
+                dependencies { ${testImplementationConfiguration} 'junit:junit:4.13' }
             }
 """
         file("src/main/java/Thing.java") << """class Thing { }"""
         file("src/test/java/ThingTest.java") << """
-            public class ThingTest { 
+            public class ThingTest {
                 @org.junit.Test
                 public void ok() { }
             }
@@ -119,7 +120,7 @@ class BuildProgressCrossVersionSpec extends ToolingApiSpecification {
         given:
         buildFile << """
             allprojects { apply plugin: 'java' }
-            dependencies { compile 'thing:thing:1.0' }
+            dependencies { ${implementationConfiguration} 'thing:thing:1.0' }
 """
         file("src/main/java/Thing.java") << """class Thing { }"""
 

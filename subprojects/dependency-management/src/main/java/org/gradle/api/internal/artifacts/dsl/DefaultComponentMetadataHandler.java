@@ -42,10 +42,12 @@ import org.gradle.api.internal.notations.DependencyMetadataNotationParser;
 import org.gradle.api.internal.notations.ModuleIdentifierNotationConverter;
 import org.gradle.api.specs.Spec;
 import org.gradle.api.specs.Specs;
+import org.gradle.internal.DisplayName;
 import org.gradle.internal.action.ConfigurableRule;
 import org.gradle.internal.action.DefaultConfigurableRule;
 import org.gradle.internal.component.external.model.VariantDerivationStrategy;
 import org.gradle.internal.isolation.IsolatableFactory;
+import org.gradle.internal.management.DependencyResolutionManagementInternal;
 import org.gradle.internal.reflect.Instantiator;
 import org.gradle.internal.resolve.caching.ComponentMetadataRuleExecutor;
 import org.gradle.internal.rules.DefaultRuleActionAdapter;
@@ -58,7 +60,10 @@ import org.gradle.internal.typeconversion.NotationParser;
 import org.gradle.internal.typeconversion.NotationParserBuilder;
 import org.gradle.internal.typeconversion.UnsupportedNotationException;
 
-public class DefaultComponentMetadataHandler implements ComponentMetadataHandler, ComponentMetadataHandlerInternal, ComponentMetadataProcessorFactory {
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+
+public class DefaultComponentMetadataHandler implements ComponentMetadataHandler, ComponentMetadataHandlerInternal {
     private static final String ADAPTER_NAME = ComponentMetadataHandler.class.getSimpleName();
     private static final String INVALID_SPEC_ERROR = "Could not add a component metadata rule for module '%s'.";
 
@@ -102,6 +107,29 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
         this(instantiator, createAdapter(), moduleIdentifierFactory, stringInterner, attributesFactory, isolatableFactory, ruleExecutor, platformSupport);
     }
 
+    private DefaultComponentMetadataHandler(Instantiator instantiator,
+                                            RuleActionAdapter ruleActionAdapter,
+                                            NotationParser<Object, ModuleIdentifier> moduleIdentifierNotationParser,
+                                            NotationParser<Object, DirectDependencyMetadataImpl> dependencyMetadataNotationParser,
+                                            NotationParser<Object, DependencyConstraintMetadataImpl> dependencyConstraintMetadataNotationParser,
+                                            NotationParser<Object, ComponentIdentifier> componentIdentifierNotationParser,
+                                            ImmutableAttributesFactory attributesFactory,
+                                            IsolatableFactory isolatableFactory,
+                                            ComponentMetadataRuleExecutor ruleExecutor,
+                                            PlatformSupport platformSupport) {
+        this.instantiator = instantiator;
+        this.ruleActionAdapter = ruleActionAdapter;
+        this.moduleIdentifierNotationParser = moduleIdentifierNotationParser;
+        this.ruleExecutor = ruleExecutor;
+        this.dependencyMetadataNotationParser = dependencyMetadataNotationParser;
+        this.dependencyConstraintMetadataNotationParser = dependencyConstraintMetadataNotationParser;
+        this.componentIdentifierNotationParser = componentIdentifierNotationParser;
+        this.attributesFactory = attributesFactory;
+        this.isolatableFactory = isolatableFactory;
+        this.metadataRuleContainer = new ComponentMetadataRuleContainer();
+        this.platformSupport = platformSupport;
+    }
+
     private static RuleActionAdapter createAdapter() {
         RuleActionValidator ruleActionValidator = new DefaultRuleActionValidator(IvyModuleDescriptor.class, PomModuleDescriptor.class);
         return new DefaultRuleActionAdapter(ruleActionValidator, ADAPTER_NAME);
@@ -118,7 +146,7 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
     }
 
     private <U> SpecRuleAction<? super U> createAllSpecRuleAction(RuleAction<? super U> ruleAction) {
-        return new SpecRuleAction<U>(ruleAction, Specs.<U>satisfyAll());
+        return new SpecRuleAction<>(ruleAction, Specs.satisfyAll());
     }
 
     private SpecRuleAction<? super ComponentMetadataDetails> createSpecRuleActionForModule(Object id, RuleAction<? super ComponentMetadataDetails> ruleAction) {
@@ -131,7 +159,7 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
         }
 
         Spec<ComponentMetadataDetails> spec = new ComponentMetadataDetailsMatchingSpec(moduleIdentifier);
-        return new SpecRuleAction<ComponentMetadataDetails>(ruleAction, spec);
+        return new SpecRuleAction<>(ruleAction, spec);
     }
 
     @Override
@@ -166,22 +194,22 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
 
     @Override
     public ComponentMetadataHandler all(Class<? extends ComponentMetadataRule> rule) {
-        return addClassBasedRule(createAllSpecConfigurableRule(DefaultConfigurableRule.<ComponentMetadataContext>of(rule)));
+        return addClassBasedRule(createAllSpecConfigurableRule(DefaultConfigurableRule.of(rule)));
     }
 
     @Override
     public ComponentMetadataHandler all(Class<? extends ComponentMetadataRule> rule, Action<? super ActionConfiguration> configureAction) {
-        return addClassBasedRule(createAllSpecConfigurableRule(DefaultConfigurableRule.<ComponentMetadataContext>of(rule, configureAction, isolatableFactory)));
+        return addClassBasedRule(createAllSpecConfigurableRule(DefaultConfigurableRule.of(rule, configureAction, isolatableFactory)));
     }
 
     @Override
     public ComponentMetadataHandler withModule(Object id, Class<? extends ComponentMetadataRule> rule) {
-        return addClassBasedRule(createModuleSpecConfigurableRule(id, DefaultConfigurableRule.<ComponentMetadataContext>of(rule)));
+        return addClassBasedRule(createModuleSpecConfigurableRule(id, DefaultConfigurableRule.of(rule)));
     }
 
     @Override
     public ComponentMetadataHandler withModule(Object id, Class<? extends ComponentMetadataRule> rule, Action<? super ActionConfiguration> configureAction) {
-        return addClassBasedRule(createModuleSpecConfigurableRule(id, DefaultConfigurableRule.<ComponentMetadataContext>of(rule, configureAction, isolatableFactory)));
+        return addClassBasedRule(createModuleSpecConfigurableRule(id, DefaultConfigurableRule.of(rule, configureAction, isolatableFactory)));
     }
 
     private SpecConfigurableRule createModuleSpecConfigurableRule(Object id, ConfigurableRule<ComponentMetadataContext> instantiatingAction) {
@@ -198,7 +226,7 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
     }
 
     private SpecConfigurableRule createAllSpecConfigurableRule(ConfigurableRule<ComponentMetadataContext> instantiatingAction) {
-        return new SpecConfigurableRule(instantiatingAction, Specs.<ModuleVersionIdentifier>satisfyAll());
+        return new SpecConfigurableRule(instantiatingAction, Specs.satisfyAll());
     }
 
     @Override
@@ -211,8 +239,41 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
         metadataRuleContainer.setVariantDerivationStrategy(strategy);
     }
 
+    @Override
+    public VariantDerivationStrategy getVariantDerivationStrategy() {
+        return metadataRuleContainer.getVariantDerivationStrategy();
+    }
+
+    @Override
+    public void onAddRule(Consumer<DisplayName> consumer) {
+        metadataRuleContainer.onAddRule(consumer);
+    }
+
+    @Override
+    public ComponentMetadataProcessorFactory createFactory(DependencyResolutionManagementInternal dependencyResolutionManagement) {
+        // we need to defer the creation of the actual factory until configuration is completed
+        // Typically the state of whether to prefer project rules or not is not known when this
+        // method is called.
+        Supplier<ComponentMetadataHandlerInternal> actualHandler = () -> {
+            // determine whether to use the project local handler or the settings handler
+            boolean useRules = dependencyResolutionManagement.getConfiguredRulesMode().useProjectRules();
+            if (metadataRuleContainer.isEmpty() || !useRules) {
+                // We're creating a component metadata handler which will be applied the settings
+                // rules and the current derivation strategy
+                DefaultComponentMetadataHandler delegate = new DefaultComponentMetadataHandler(
+                    instantiator, ruleActionAdapter, moduleIdentifierNotationParser, dependencyMetadataNotationParser, dependencyConstraintMetadataNotationParser, componentIdentifierNotationParser, attributesFactory, isolatableFactory, ruleExecutor, platformSupport
+                );
+                dependencyResolutionManagement.applyRules(delegate);
+                delegate.setVariantDerivationStrategy(getVariantDerivationStrategy());
+                return delegate;
+            }
+            return this;
+        };
+        return resolutionContext -> actualHandler.get().createComponentMetadataProcessor(resolutionContext);
+    }
+
     static class ComponentMetadataDetailsMatchingSpec implements Spec<ComponentMetadataDetails> {
-        private ModuleIdentifier target;
+        private final ModuleIdentifier target;
 
         ComponentMetadataDetailsMatchingSpec(ModuleIdentifier target) {
             this.target = target;
@@ -226,7 +287,7 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
     }
 
     static class ModuleVersionIdentifierSpec implements Spec<ModuleVersionIdentifier> {
-        private ModuleIdentifier target;
+        private final ModuleIdentifier target;
 
         ModuleVersionIdentifierSpec(ModuleIdentifier target) {
             this.target = target;

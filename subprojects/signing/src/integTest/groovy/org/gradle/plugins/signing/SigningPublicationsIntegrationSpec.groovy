@@ -16,12 +16,12 @@
 
 package org.gradle.plugins.signing
 
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import spock.lang.Issue
 
 class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "signs single Maven publication"() {
         given:
         buildFile << """
@@ -53,7 +53,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         file("build", "publications", "mavenJava", "pom-default.xml.asc").text
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "component can still be mutated after signing is configured for a Maven publication"() {
         given:
         buildFile << """
@@ -87,7 +87,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         file("build", "libs", "sign-3.0.jar").text
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "component can still be mutated after signing is configured for an Ivy publication"() {
         given:
         buildFile << """
@@ -121,7 +121,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         file("build", "libs", "sign-3.0.jar").text
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "artifacts can still be mutated after signing is configured"() {
         given:
 
@@ -163,7 +163,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         file("build", "libs", "sign-1.0-custom2.jar.asc").text
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "signs single Ivy publication"() {
         given:
         buildFile << """
@@ -195,7 +195,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         file("build", "publications", "ivyJava", "ivy.xml.asc").text
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "signs Gradle metadata"() {
         given:
         buildFile << """
@@ -233,7 +233,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         file("build", "publications", "ivy", "module.json.asc").text
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "allows signing Gradle metadata if version is a snapshot"() {
         when:
         buildFile << """
@@ -260,7 +260,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         succeeds "signMavenPublication"
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "publishes signature files for Maven publication"() {
         given:
         buildFile << """
@@ -312,7 +312,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         m2RepoFile("$artifactId-${version}.module.asc").assertExists()
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "publishes signature files for Ivy publication"() {
         given:
         buildFile << """
@@ -372,7 +372,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         outputContains "Publication of Gradle Module Metadata is disabled because you have configured an Ivy repository with a non-standard layout"
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "sign task takes into account configuration changes"() {
         given:
         buildFile << """
@@ -414,7 +414,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         file("build", "publications", "mavenJava", "pom-default.xml.asc").text
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "publish task takes into account configuration changes"() {
         given:
         buildFile << """
@@ -459,7 +459,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         m2RepoFile("${jarFileName}.asc").assertDoesNotExist()
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "signs all publications in container"() {
         given:
         buildFile << """
@@ -497,7 +497,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         file("build", "publications", "ivy", "ivy.xml.asc").assertExists()
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "signs filtered publications of container"() {
         given:
         buildFile << """
@@ -531,7 +531,7 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
     }
 
     @Issue("https://github.com/gradle/gradle/issues/5099")
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "disabling sign tasks skips uploading signature artifacts but does not break publishing"() {
         given:
         buildFile << """
@@ -573,26 +573,29 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         """
 
         when:
-        succeeds "publish"
-
+        succeeds ":publishIvyPublicationToIvyRepository"
         then:
         skipped(":signIvyPublication")
-        skipped(":signMavenPublication")
         executedAndNotSkipped(":publishIvyPublicationToIvyRepository")
-        executedAndNotSkipped(":publishMavenPublicationToMavenRepository")
+        and:
+        ivyRepoFile(jarFileName).assertExists()
+        ivyRepoFile("${jarFileName}.asc").assertDoesNotExist()
+        ivyRepoFile("ivy-${version}.xml").assertExists()
+        ivyRepoFile("ivy-${version}.xml.asc").assertDoesNotExist()
 
+        when:
+        succeeds(":publishMavenPublicationToMavenRepository")
+        then:
+        skipped(":signMavenPublication")
+        executedAndNotSkipped(":publishMavenPublicationToMavenRepository")
         and:
         pom().assertExists()
         pomSignature().assertDoesNotExist()
         m2RepoFile(jarFileName).assertExists()
         m2RepoFile("${jarFileName}.asc").assertDoesNotExist()
-        ivyRepoFile(jarFileName).assertExists()
-        ivyRepoFile("${jarFileName}.asc").assertDoesNotExist()
-        ivyRepoFile("ivy-${version}.xml").assertExists()
-        ivyRepoFile("ivy-${version}.xml.asc").assertDoesNotExist()
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     @Issue("https://github.com/gradle/gradle/issues/5136")
     def "doesn't publish stale signatures"() {
         buildFile << """
@@ -647,10 +650,18 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         """
 
         when:
-        succeeds "publish", "-Psign=true"
-
+        succeeds "publishIvyPublicationToIvyRepository", "-Psign=true"
         then:
         executedAndNotSkipped(":signIvyPublication", ":publishIvyPublicationToIvyRepository")
+        and:
+        ivyRepoFile(jarFileName).assertExists()
+        ivyRepoFile("${jarFileName}.asc").assertExists()
+        ivyRepoFile("ivy-${version}.xml").assertExists()
+        ivyRepoFile("ivy-${version}.xml.asc").assertExists()
+
+        when:
+        succeeds "publishMavenPublicationToMavenRepository", "-Psign=true"
+        then:
         executedAndNotSkipped(":signMavenPublication", ":publishMavenPublicationToMavenRepository")
 
         and:
@@ -660,20 +671,24 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         moduleSignature().assertExists()
         m2RepoFile(jarFileName).assertExists()
         m2RepoFile("${jarFileName}.asc").assertExists()
-        ivyRepoFile(jarFileName).assertExists()
-        ivyRepoFile("${jarFileName}.asc").assertExists()
-        ivyRepoFile("ivy-${version}.xml").assertExists()
-        ivyRepoFile("ivy-${version}.xml.asc").assertExists()
 
         when:
-        succeeds "cleanRepo", "publish", "-Psign=false"
+        succeeds "cleanRepo", "publishIvyPublicationToIvyRepository", "-Psign=false"
 
         then:
         skipped(":signIvyPublication")
-        skipped(":signMavenPublication")
         executedAndNotSkipped(":publishIvyPublicationToIvyRepository")
-        executedAndNotSkipped(":publishMavenPublicationToMavenRepository")
+        and:
+        ivyRepoFile(jarFileName).assertExists()
+        ivyRepoFile("${jarFileName}.asc").assertDoesNotExist()
+        ivyRepoFile("ivy-${version}.xml").assertExists()
+        ivyRepoFile("ivy-${version}.xml.asc").assertDoesNotExist()
 
+        when:
+        succeeds "cleanRepo", "publishMavenPublicationToMavenRepository", "-Psign=false"
+        then:
+        skipped(":signMavenPublication")
+        executedAndNotSkipped(":publishMavenPublicationToMavenRepository")
         and:
         pom().assertExists()
         pomSignature().assertDoesNotExist()
@@ -681,20 +696,23 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         moduleSignature().assertDoesNotExist()
         m2RepoFile(jarFileName).assertExists()
         m2RepoFile("${jarFileName}.asc").assertDoesNotExist()
+
+        when:
+        succeeds "cleanRepo", "publishIvyPublicationToIvyRepository", "-Psign=skip"
+        then:
+        skipped(":signIvyPublication")
+        executedAndNotSkipped(":publishIvyPublicationToIvyRepository")
+        and:
         ivyRepoFile(jarFileName).assertExists()
         ivyRepoFile("${jarFileName}.asc").assertDoesNotExist()
         ivyRepoFile("ivy-${version}.xml").assertExists()
         ivyRepoFile("ivy-${version}.xml.asc").assertDoesNotExist()
 
         when:
-        succeeds "cleanRepo", "publish", "-Psign=skip"
-
+        succeeds "cleanRepo", "publishMavenPublicationToMavenRepository", "-Psign=skip"
         then:
-        skipped(":signIvyPublication")
         skipped(":signMavenPublication")
-        executedAndNotSkipped(":publishIvyPublicationToIvyRepository")
         executedAndNotSkipped(":publishMavenPublicationToMavenRepository")
-
         and:
         pom().assertExists()
         pomSignature().assertDoesNotExist()
@@ -702,9 +720,5 @@ class SigningPublicationsIntegrationSpec extends SigningIntegrationSpec {
         moduleSignature().assertDoesNotExist()
         m2RepoFile(jarFileName).assertExists()
         m2RepoFile("${jarFileName}.asc").assertDoesNotExist()
-        ivyRepoFile(jarFileName).assertExists()
-        ivyRepoFile("${jarFileName}.asc").assertDoesNotExist()
-        ivyRepoFile("ivy-${version}.xml").assertExists()
-        ivyRepoFile("ivy-${version}.xml.asc").assertDoesNotExist()
     }
 }

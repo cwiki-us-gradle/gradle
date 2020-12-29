@@ -20,6 +20,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.CompileClasspath;
+import org.gradle.api.tasks.IgnoreEmptyDirectories;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.SkipWhenEmpty;
@@ -31,23 +32,26 @@ import java.util.Collection;
 import java.util.Map;
 
 public enum ModifierAnnotationCategory implements AnnotationCategory {
-    INCREMENTAL(
+    INCREMENTAL(ImmutableSet.of(
         Incremental.class,
         SkipWhenEmpty.class
-    ),
-    NORMALIZATION(
+    )),
+    NORMALIZATION(ImmutableSet.of(
         Classpath.class,
         CompileClasspath.class,
         PathSensitive.class
-    ),
-    OPTIONAL(
+    )),
+    OPTIONAL(ImmutableSet.of(
         Optional.class
-    );
+    )),
+    IGNORE_EMPTY_DIRECTORIES(ImmutableSet.of(
+        IgnoreEmptyDirectories.class
+    ));
 
     private final ImmutableSet<Class<? extends Annotation>> annotations;
 
-    ModifierAnnotationCategory(Class<? extends Annotation>... annotations) {
-        this.annotations = ImmutableSet.copyOf(annotations);
+    ModifierAnnotationCategory(ImmutableSet<Class<? extends Annotation>> annotations) {
+        this.annotations = annotations;
     }
 
     @Override

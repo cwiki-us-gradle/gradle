@@ -45,7 +45,6 @@ import org.gradle.api.internal.artifacts.DefaultExcludeRule
 import org.gradle.api.internal.artifacts.DefaultResolverResults
 import org.gradle.api.internal.artifacts.ResolverResults
 import org.gradle.api.internal.artifacts.dependencies.DefaultExternalModuleDependency
-import org.gradle.api.internal.artifacts.dsl.dependencies.ProjectFinder
 import org.gradle.api.internal.artifacts.ivyservice.DefaultLenientConfiguration
 import org.gradle.api.internal.artifacts.ivyservice.moduleconverter.RootComponentMetadataBuilder
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ArtifactVisitor
@@ -55,6 +54,7 @@ import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.Visit
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.projectresult.ResolvedLocalComponentsResult
 import org.gradle.api.internal.artifacts.publish.DefaultPublishArtifact
 import org.gradle.api.internal.file.TestFiles
+import org.gradle.api.internal.initialization.RootScriptDomainObjectContext
 import org.gradle.api.internal.project.ProjectStateRegistry
 import org.gradle.api.internal.tasks.TaskDependencyResolveContext
 import org.gradle.api.specs.Spec
@@ -64,7 +64,7 @@ import org.gradle.initialization.ProjectAccessListener
 import org.gradle.internal.Factories
 import org.gradle.internal.event.AnonymousListenerBroadcast
 import org.gradle.internal.event.ListenerManager
-import org.gradle.internal.model.ModelContainer
+import org.gradle.internal.model.CalculatedValueContainerFactory
 import org.gradle.internal.operations.TestBuildOperationExecutor
 import org.gradle.internal.reflect.Instantiator
 import org.gradle.internal.typeconversion.NotationParser
@@ -80,7 +80,7 @@ import static org.gradle.api.artifacts.Configuration.State.RESOLVED
 import static org.gradle.api.artifacts.Configuration.State.RESOLVED_WITH_FAILURES
 import static org.gradle.api.artifacts.Configuration.State.UNRESOLVED
 import static org.hamcrest.CoreMatchers.equalTo
-import static org.junit.Assert.assertThat
+import static org.hamcrest.MatcherAssert.assertThat
 
 class DefaultConfigurationSpec extends Specification {
     Instantiator instantiator = TestUtil.instantiatorFactory().decorateLenient()
@@ -91,21 +91,18 @@ class DefaultConfigurationSpec extends Specification {
     def metaDataProvider = Mock(DependencyMetaDataProvider)
     def resolutionStrategy = Mock(ResolutionStrategyInternal)
     def projectAccessListener = Mock(ProjectAccessListener)
-    def projectFinder = Mock(ProjectFinder)
     def immutableAttributesFactory = AttributeTestUtil.attributesFactory()
     def rootComponentMetadataBuilder = Mock(RootComponentMetadataBuilder)
     def projectStateRegistry = Mock(ProjectStateRegistry)
-    def safeLock = Mock(ProjectStateRegistry.SafeExclusiveLock)
     def domainObjectCollectioncallbackActionDecorator = Mock(CollectionCallbackActionDecorator)
     def userCodeApplicationContext = Mock(UserCodeApplicationContext)
+    def calculatedValueContainerFactory = Mock(CalculatedValueContainerFactory)
 
     def setup() {
         _ * listenerManager.createAnonymousBroadcaster(DependencyResolutionListener) >> { new AnonymousListenerBroadcast<DependencyResolutionListener>(DependencyResolutionListener) }
         _ * resolver.getRepositories() >> []
-        _ * projectStateRegistry.newExclusiveOperationLock() >> safeLock
-        _ * safeLock.withLock(_) >> { args -> args[0].run() }
         _ * domainObjectCollectioncallbackActionDecorator.decorate(_) >> { args -> args[0] }
-        _ * userCodeApplicationContext.decorateWithCurrent(_) >> { args -> args[0] }
+        _ * userCodeApplicationContext.reapplyCurrentLater(_) >> { args -> args[0] }
     }
 
     void defaultValues() {
@@ -312,7 +309,7 @@ class DefaultConfigurationSpec extends Specification {
         def fileSet = [new File("somePath")] as Set
 
         given:
-        expectResolved(fileSet);
+        expectResolved(fileSet)
 
         when:
         def resolved = configuration.resolve()
@@ -375,16 +372,16 @@ class DefaultConfigurationSpec extends Specification {
     }
 
     def fileCollectionWithDependencies() {
-        def dependency1 = dependency("group1", "name", "version");
-        def dependency2 = dependency("group2", "name", "version");
+        def dependency1 = dependency("group1", "name", "version")
+        def dependency2 = dependency("group2", "name", "version")
         def configuration = conf()
 
         when:
         def fileCollection = configuration.fileCollection(dependency1)
 
         then:
-        fileCollection.getDependencySpec().isSatisfiedBy(dependency1)
-        !fileCollection.getDependencySpec().isSatisfiedBy(dependency2)
+        fileCollection.dependencySpec.isSatisfiedBy(dependency1)
+        !fileCollection.dependencySpec.isSatisfiedBy(dependency2)
     }
 
     def fileCollectionWithSpec() {
@@ -395,7 +392,7 @@ class DefaultConfigurationSpec extends Specification {
         def fileCollection = configuration.fileCollection(spec)
 
         then:
-        fileCollection.getDependencySpec() == spec
+        fileCollection.dependencySpec == spec
     }
 
     def fileCollectionWithClosureSpec() {
@@ -406,8 +403,8 @@ class DefaultConfigurationSpec extends Specification {
         def fileCollection = configuration.fileCollection(closure)
 
         then:
-        fileCollection.getDependencySpec().isSatisfiedBy(dependency("group1", "name", "version"))
-        !fileCollection.getDependencySpec().isSatisfiedBy(dependency("group2", "name", "version"))
+        fileCollection.dependencySpec.isSatisfiedBy(dependency("group1", "name", "version"))
+        !fileCollection.dependencySpec.isSatisfiedBy(dependency("group2", "name", "version"))
     }
 
     def filesWithDependencies() {
@@ -440,7 +437,7 @@ class DefaultConfigurationSpec extends Specification {
         def fileSet = [new File("somePath")] as Set
 
         when:
-        prepareForFilesBySpec(fileSet);
+        prepareForFilesBySpec(fileSet)
 
         then:
         configuration.files(closure) == fileSet
@@ -477,6 +474,7 @@ class DefaultConfigurationSpec extends Specification {
                     _ * artifact.file >> it
                     visitor.visitArtifact(null, null, artifact)
                 }
+                visitor.endVisitCollection(null)
             }
         }
 
@@ -795,7 +793,7 @@ class DefaultConfigurationSpec extends Specification {
         and:
         def copiedConfiguration = configuration.copy(new Spec<Dependency>() {
             boolean isSatisfiedBy(Dependency element) {
-                return !element.getGroup().equals("group3");
+                return !element.getGroup().equals("group3")
             }
         })
 
@@ -872,7 +870,7 @@ class DefaultConfigurationSpec extends Specification {
         configuration.transitive = false
         configuration.description = "descript"
         configuration.exclude([group: "value"])
-        configuration.exclude([group: "value2"]);
+        configuration.exclude([group: "value2"])
         configuration.artifacts.add(artifact("name1", "ext1", "type1", "classifier1"))
         configuration.artifacts.add(artifact("name2", "ext2", "type2", "classifier2"))
         configuration.dependencies.add(dependency("group1", "name1", "version1"))
@@ -1347,13 +1345,13 @@ class DefaultConfigurationSpec extends Specification {
         when:
         conf.dependencies.add(Mock(Dependency))
         then:
-        def exDependency = thrown(InvalidUserDataException);
+        def exDependency = thrown(InvalidUserDataException)
         exDependency.message == "Cannot change dependencies of dependency configuration ':conf' after it has been resolved."
 
         when:
         conf.artifacts.add(Mock(PublishArtifact))
         then:
-        def exArtifact = thrown(InvalidUserDataException);
+        def exArtifact = thrown(InvalidUserDataException)
         exArtifact.message == "Cannot change artifacts of dependency configuration ':conf' after it has been resolved."
     }
 
@@ -1436,7 +1434,7 @@ class DefaultConfigurationSpec extends Specification {
         prepareForFilesBySpec([] as Set)
 
         given:
-        configuration.resolve();
+        configuration.resolve()
 
         when:
         configuration.setTransitive(true)
@@ -1624,15 +1622,15 @@ class DefaultConfigurationSpec extends Specification {
 
     def dumpString() {
         when:
-        def configurationDependency = dependency("dumpgroup1", "dumpname1", "dumpversion1");
-        def otherConfSimilarDependency = dependency("dumpgroup1", "dumpname1", "dumpversion1");
-        def otherConfDependency = dependency("dumpgroup2", "dumpname2", "dumpversion2");
-        def otherConf = conf("dumpConf");
-        otherConf.getDependencies().add(otherConfDependency);
-        otherConf.getDependencies().add(otherConfSimilarDependency);
+        def configurationDependency = dependency("dumpgroup1", "dumpname1", "dumpversion1")
+        def otherConfSimilarDependency = dependency("dumpgroup1", "dumpname1", "dumpversion1")
+        def otherConfDependency = dependency("dumpgroup2", "dumpname2", "dumpversion2")
+        def otherConf = conf("dumpConf")
+        otherConf.getDependencies().add(otherConfDependency)
+        otherConf.getDependencies().add(otherConfSimilarDependency)
 
         def configuration = conf().extendsFrom(otherConf)
-        configuration.getDependencies().add(configurationDependency);
+        configuration.getDependencies().add(configurationDependency)
 
         then:
         configuration.dump() == """
@@ -1739,25 +1737,21 @@ All Artifacts:
     }
 
     private dependency(String group, String name, String version) {
-        new DefaultExternalModuleDependency(group, name, version);
+        new DefaultExternalModuleDependency(group, name, version)
     }
 
     private DefaultConfiguration conf(String confName = "conf", String projectPath = ":", String buildPath = ":") {
         def domainObjectContext = Stub(DomainObjectContext)
-        def modelContainer = Stub(ModelContainer)
         def build = Path.path(buildPath)
         _ * domainObjectContext.identityPath(_) >> { String p -> build.append(Path.path(projectPath)).child(p) }
         _ * domainObjectContext.projectPath(_) >> { String p -> Path.path(projectPath).child(p) }
         _ * domainObjectContext.buildPath >> Path.path(buildPath)
-        _ * domainObjectContext.model >> modelContainer
-        _ * modelContainer.hasMutableState() >> true
-        _ * modelContainer.withMutableState(_) >> { throw new RuntimeException() }
-        _ * modelContainer.withLenientState(_) >> { throw new RuntimeException() }
+        _ * domainObjectContext.model >> RootScriptDomainObjectContext.INSTANCE
 
         def publishArtifactNotationParser = NotationParserBuilder.toType(ConfigurablePublishArtifact).toComposite()
         new DefaultConfiguration(domainObjectContext, confName, configurationsProvider, resolver, listenerManager, metaDataProvider,
-            Factories.constant(resolutionStrategy), projectAccessListener, projectFinder, TestFiles.fileCollectionFactory(),
-            new TestBuildOperationExecutor(), instantiator, publishArtifactNotationParser, Stub(NotationParser), immutableAttributesFactory, rootComponentMetadataBuilder, Stub(DocumentationRegistry), userCodeApplicationContext, domainObjectContext, projectStateRegistry, TestUtil.domainObjectCollectionFactory())
+            Factories.constant(resolutionStrategy), projectAccessListener, TestFiles.fileCollectionFactory(),
+            new TestBuildOperationExecutor(), instantiator, publishArtifactNotationParser, Stub(NotationParser), immutableAttributesFactory, rootComponentMetadataBuilder, Stub(DocumentationRegistry), userCodeApplicationContext, domainObjectContext, projectStateRegistry, TestUtil.domainObjectCollectionFactory(), calculatedValueContainerFactory)
     }
 
     private DefaultPublishArtifact artifact(String name) {
@@ -1765,7 +1759,7 @@ All Artifacts:
     }
 
     private DefaultPublishArtifact artifact(String name, String extension, String type, String classifier) {
-        return new DefaultPublishArtifact(name, extension, type, classifier, new Date(), new File(name));
+        return new DefaultPublishArtifact(name, extension, type, classifier, new Date(), new File(name))
     }
 
     private DefaultPublishArtifact artifact(Map props = [:]) {

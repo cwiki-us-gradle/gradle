@@ -3,7 +3,7 @@ package org.gradle.kotlin.dsl.integration
 import org.gradle.kotlin.dsl.fixtures.AbstractKotlinIntegrationTest
 import org.gradle.kotlin.dsl.fixtures.containsMultiLineString
 
-import org.junit.Assert.assertThat
+import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Test
 
 
@@ -127,10 +127,13 @@ class LocationAwareScriptEvaluationIntegrationTest : AbstractKotlinIntegrationTe
     fun `location of exception thrown by kotlin script applied from groovy script is reported`() {
 
         withFile("build.gradle", "apply from: 'other.gradle.kts'")
-        val script = withFile("other.gradle.kts", """
+        val script = withFile(
+            "other.gradle.kts",
+            """
             println("In Kotlin Script")
             $boom
-        """)
+            """
+        )
 
         assertFailingBuildOutputOf("help") {
             """
@@ -153,10 +156,13 @@ class LocationAwareScriptEvaluationIntegrationTest : AbstractKotlinIntegrationTe
     fun `location of exception thrown by groovy script applied from kotlin script shadowed by the kotlin location`() {
 
         val kotlinScript = withBuildScript("""apply(from = "other.gradle")""")
-        withFile("other.gradle", """
+        withFile(
+            "other.gradle",
+            """
             println("In Groovy Script")
             throw new InternalError("BOOM!")
-        """)
+            """
+        )
 
         assertFailingBuildOutputOf("help") {
             """

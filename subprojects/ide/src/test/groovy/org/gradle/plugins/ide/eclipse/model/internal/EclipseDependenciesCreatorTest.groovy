@@ -27,9 +27,9 @@ import org.gradle.util.TestUtil
 
 class EclipseDependenciesCreatorTest extends AbstractProjectBuilderSpec{
     private final ProjectInternal project = TestUtil.createRootProject(temporaryFolder.testDirectory)
-    private final ProjectInternal childProject = TestUtil.createChildProject(project, "child", new File("."))
+    private final childProject = TestUtil.createChildProject(project, "child", temporaryFolder.testDirectory.file("child"))
     private final EclipseClasspath eclipseClasspath = new EclipseClasspath(project)
-    private final dependenciesProvider = new EclipseDependenciesCreator(eclipseClasspath, project.services.get(IdeArtifactRegistry), project.services.get(ProjectStateRegistry), NullGradleApiSourcesResolver.INSTANCE)
+    private final dependenciesProvider = new EclipseDependenciesCreator(eclipseClasspath, project.services.get(IdeArtifactRegistry), project.services.get(ProjectStateRegistry), NullGradleApiSourcesResolver.INSTANCE, false)
 
     def "compile dependency on child project"() {
         applyPluginToProjects()
@@ -40,7 +40,7 @@ class EclipseDependenciesCreatorTest extends AbstractProjectBuilderSpec{
         eclipseClasspath.plusConfigurations = [project.configurations.compileClasspath, project.configurations.runtimeClasspath, project.configurations.testCompileClasspath, project.configurations.testRuntimeClasspath]
 
         when:
-        project.dependencies.add('compile', childProject)
+        project.dependencies.add('implementation', childProject)
         def result = dependenciesProvider.createDependencyEntries()
 
         then:
@@ -57,7 +57,7 @@ class EclipseDependenciesCreatorTest extends AbstractProjectBuilderSpec{
         eclipseClasspath.plusConfigurations = [project.configurations.compileClasspath, project.configurations.runtimeClasspath, project.configurations.testCompileClasspath, project.configurations.testRuntimeClasspath]
 
         when:
-        project.dependencies.add('testCompile', project)
+        project.dependencies.add('testImplementation', project)
         def result = dependenciesProvider.createDependencyEntries()
 
         then:

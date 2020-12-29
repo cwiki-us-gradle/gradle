@@ -16,6 +16,7 @@
 package org.gradle.groovy
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import spock.lang.Issue
 
 class GroovyBasePluginIntegrationTest extends AbstractIntegrationSpec {
@@ -75,8 +76,8 @@ task groovydoc(type: Groovydoc) {
 
 task verify {
     doLast {
-        assert configurations.customCompile.state.toString() == "UNRESOLVED"
-        assert configurations.customRuntime.state.toString() == "UNRESOLVED"
+        assert configurations.customCompileClasspath.state.toString() == "UNRESOLVED"
+        assert configurations.customRuntimeClasspath.state.toString() == "UNRESOLVED"
     }
 }
         """
@@ -85,6 +86,7 @@ task verify {
         succeeds("verify")
     }
 
+    @ToBeFixedForConfigurationCache(because = "gradle/configuration-cache#270")
     def "not specifying a groovy runtime produces decent error message"() {
         given:
         buildFile << """

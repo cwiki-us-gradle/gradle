@@ -15,26 +15,25 @@
  */
 package org.gradle.process.internal;
 
-import com.google.common.collect.Iterables;
 import org.gradle.api.Action;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.internal.file.FileCollectionFactory;
 import org.gradle.api.internal.file.FileResolver;
-import org.gradle.api.jpms.ModularClasspathHandling;
+import org.gradle.api.internal.file.TemporaryFileProvider;
+import org.gradle.api.jvm.ModularitySpec;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.Property;
 import org.gradle.initialization.BuildCancellationToken;
-import org.gradle.internal.jpms.DefaultModularClasspathHandling;
-import org.gradle.internal.jpms.JavaModuleDetector;
+import org.gradle.internal.jvm.DefaultModularitySpec;
+import org.gradle.internal.jvm.JavaModuleDetector;
 import org.gradle.process.CommandLineArgumentProvider;
 import org.gradle.process.JavaDebugOptions;
 import org.gradle.process.JavaExecSpec;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.util.CollectionUtils;
-import org.gradle.util.GUtil;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -43,7 +42,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
@@ -58,32 +56,38 @@ import static org.gradle.process.internal.util.LongCommandLineDetectionUtil.hasC
 /**
  * Use {@link JavaExecHandleFactory} instead.
  */
-public class JavaExecHandleBuilder extends AbstractExecHandleBuilder implements JavaExecSpec {
+public class JavaExecHandleBuilder extends AbstractExecHandleBuilder implements JavaExecSpec, ProcessArgumentsSpec.HasExecutable {
     private static final Logger LOGGER = Logging.getLogger(JavaExecHandleBuilder.class);
     private final FileCollectionFactory fileCollectionFactory;
-    private JavaModuleDetector javaModuleDetector;
-    private Property<String> mainModule;
-    private Property<String> mainClass;
-    private final List<Object> applicationArgs = new ArrayList<>();
+    private final TemporaryFileProvider temporaryFileProvider;
+    private final JavaModuleDetector javaModuleDetector;
+    private final Property<String> mainModule;
+    private final Property<String> mainClass;
     private ConfigurableFileCollection classpath;
     private final JavaForkOptions javaOptions;
-    private final List<CommandLineArgumentProvider> argumentProviders = new ArrayList<>();
-    private final ModularClasspathHandling modularClasspathHandling;
+    private final ProcessArgumentsSpec applicationArgsSpec = new ProcessArgumentsSpec(this);
+    private final ModularitySpec modularity;
 
-    public JavaExecHandleBuilder(FileResolver fileResolver, FileCollectionFactory fileCollectionFactory, ObjectFactory objectFactory, Executor executor, BuildCancellationToken buildCancellationToken, @Nullable JavaModuleDetector javaModuleDetector, JavaForkOptions javaOptions) {
+    public JavaExecHandleBuilder(
+        FileResolver fileResolver,
+        FileCollectionFactory fileCollectionFactory,
+        ObjectFactory objectFactory,
+        Executor executor,
+        BuildCancellationToken buildCancellationToken,
+        TemporaryFileProvider temporaryFileProvider,
+        @Nullable JavaModuleDetector javaModuleDetector,
+        JavaForkOptions javaOptions
+    ) {
         super(fileResolver, executor, buildCancellationToken);
         this.fileCollectionFactory = fileCollectionFactory;
+        this.temporaryFileProvider = temporaryFileProvider;
         this.javaModuleDetector = javaModuleDetector;
         this.classpath = fileCollectionFactory.configurableFiles("classpath");
         this.mainModule = objectFactory.property(String.class);
         this.mainClass = objectFactory.property(String.class);
         this.javaOptions = javaOptions;
-        this.modularClasspathHandling = new DefaultModularClasspathHandling(objectFactory);
+        this.modularity = new DefaultModularitySpec(objectFactory);
         executable(javaOptions.getExecutable());
-    }
-
-    public void setJavaModuleDetector(JavaModuleDetector javaModuleDetector) {
-        this.javaModuleDetector = javaModuleDetector;
     }
 
     @Override
@@ -93,7 +97,7 @@ public class JavaExecHandleBuilder extends AbstractExecHandleBuilder implements 
 
     private List<String> getAllJvmArgs(FileCollection realClasspath) {
         List<String> allArgs = new ArrayList<>(javaOptions.getAllJvmArgs());
-        boolean runAsModule = modularClasspathHandling.getInferModulePath().get() && mainModule.isPresent();
+        boolean runAsModule = modularity.getInferModulePath().get() && mainModule.isPresent();
 
         if (runAsModule) {
             addModularJavaRunArgs(realClasspath, allArgs);
@@ -125,8 +129,8 @@ public class JavaExecHandleBuilder extends AbstractExecHandleBuilder implements 
         if (javaModuleDetector == null) {
             throw new IllegalStateException("Running a Java module is not supported in this context.");
         }
-        FileCollection rtModulePath = javaModuleDetector.inferModulePath(modularClasspathHandling.getInferModulePath().get(), classpath);
-        FileCollection rtClasspath = javaModuleDetector.inferClasspath(modularClasspathHandling.getInferModulePath().get(), classpath);
+        FileCollection rtModulePath = javaModuleDetector.inferModulePath(modularity.getInferModulePath().get(), classpath);
+        FileCollection rtClasspath = javaModuleDetector.inferClasspath(modularity.getInferModulePath().get(), classpath);
 
         if (rtClasspath != null && !rtClasspath.isEmpty()) {
             allArgs.add("-cp");
@@ -303,46 +307,41 @@ public class JavaExecHandleBuilder extends AbstractExecHandleBuilder implements 
     @Override
     @Nonnull
     public List<String> getArgs() {
-        List<String> args = new ArrayList<String>();
-        for (Object applicationArg : applicationArgs) {
-            args.add(applicationArg.toString());
-        }
-        return args;
+        return applicationArgsSpec.getArgs();
     }
 
     @Override
     public JavaExecHandleBuilder setArgs(List<String> applicationArgs) {
-        this.applicationArgs.clear();
-        args(applicationArgs);
+        applicationArgsSpec.setArgs(applicationArgs);
         return this;
     }
 
     @Override
     public JavaExecHandleBuilder setArgs(Iterable<?> applicationArgs) {
-        this.applicationArgs.clear();
-        args(applicationArgs);
+        applicationArgsSpec.setArgs(applicationArgs);
         return this;
     }
 
     @Override
     public JavaExecHandleBuilder args(Object... args) {
-        args(Arrays.asList(args));
+        applicationArgsSpec.args(args);
         return this;
     }
 
     @Override
     public JavaExecSpec args(Iterable<?> args) {
-        GUtil.addToCollection(applicationArgs, true, args);
+        applicationArgsSpec.args(args);
         return this;
     }
 
     @Override
     public List<CommandLineArgumentProvider> getArgumentProviders() {
-        return argumentProviders;
+        return applicationArgsSpec.getArgumentProviders();
     }
 
     @Override
     public JavaExecHandleBuilder setClasspath(FileCollection classpath) {
+        // we need to create a new file collection container to avoid cycles. See: https://github.com/gradle/gradle/issues/8755
         ConfigurableFileCollection newClasspath = fileCollectionFactory.configurableFiles("classpath");
         newClasspath.setFrom(classpath);
         this.classpath = newClasspath;
@@ -350,8 +349,8 @@ public class JavaExecHandleBuilder extends AbstractExecHandleBuilder implements 
     }
 
     @Override
-    public ModularClasspathHandling getModularClasspathHandling() {
-        return modularClasspathHandling;
+    public ModularitySpec getModularity() {
+        return modularity;
     }
 
     @Override
@@ -372,10 +371,7 @@ public class JavaExecHandleBuilder extends AbstractExecHandleBuilder implements 
 
     private List<String> getAllArguments(FileCollection realClasspath) {
         List<String> arguments = new ArrayList<>(getAllJvmArgs(realClasspath));
-        arguments.addAll(getArgs());
-        for (CommandLineArgumentProvider argumentProvider : argumentProviders) {
-            Iterables.addAll(arguments, argumentProvider.asArguments());
-        }
+        arguments.addAll(applicationArgsSpec.getAllArguments());
         return arguments;
     }
 
@@ -401,7 +397,7 @@ public class JavaExecHandleBuilder extends AbstractExecHandleBuilder implements 
     }
 
     private File writePathingJarFile(FileCollection classPath) throws IOException {
-        File pathingJarFile = File.createTempFile("gradle-javaexec-classpath", ".jar");
+        File pathingJarFile = temporaryFileProvider.createTemporaryFile("gradle-javaexec-classpath", ".jar");
         try (FileOutputStream fileOutputStream = new FileOutputStream(pathingJarFile);
              JarOutputStream jarOutputStream = new JarOutputStream(fileOutputStream, toManifest(classPath))) {
             jarOutputStream.putNextEntry(new ZipEntry("META-INF/"));

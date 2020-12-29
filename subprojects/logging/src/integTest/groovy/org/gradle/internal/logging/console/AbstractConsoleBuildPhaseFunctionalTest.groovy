@@ -16,7 +16,7 @@
 
 package org.gradle.internal.logging.console
 
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.integtests.fixtures.console.AbstractConsoleGroupedTaskFunctionalTest
 import org.gradle.integtests.fixtures.executer.GradleHandle
 import org.gradle.test.fixtures.ConcurrentTestUtil
@@ -32,6 +32,7 @@ abstract class AbstractConsoleBuildPhaseFunctionalTest extends AbstractConsoleGr
         server.start()
     }
 
+    @ToBeFixedForConfigurationCache(because = "Gradle.buildFinished", skip =  ToBeFixedForConfigurationCache.Skip.LONG_TIMEOUT)
     def "shows progress bar and percent phase completion"() {
         settingsFile << """
             ${server.callFromBuild('settings')}
@@ -121,7 +122,7 @@ abstract class AbstractConsoleBuildPhaseFunctionalTest extends AbstractConsoleGr
         gradle.waitForFinish()
     }
 
-    @ToBeFixedForInstantExecution(skip = ToBeFixedForInstantExecution.Skip.FAILS_TO_CLEANUP)
+    @ToBeFixedForConfigurationCache(because = "build listener", skip = ToBeFixedForConfigurationCache.Skip.FAILS_TO_CLEANUP)
     def "shows progress bar and percent phase completion with included build"() {
         settingsFile << """
             ${server.callFromBuild('settings')}
@@ -161,6 +162,7 @@ abstract class AbstractConsoleBuildPhaseFunctionalTest extends AbstractConsoleGr
         def childBuildScript = server.expectAndBlock('child-build-script')
         def rootBuildScript = server.expectAndBlock('root-build-script')
         def childTaskGraph = server.expectAndBlock('child-task-graph')
+        def childTaskGraph2 = server.expectAndBlock('child-task-graph')
         def task1 = server.expectAndBlock('task1')
         def task2 = server.expectAndBlock('task2')
         def rootBuildFinished = server.expectAndBlock('root-build-finished')
@@ -173,7 +175,7 @@ abstract class AbstractConsoleBuildPhaseFunctionalTest extends AbstractConsoleGr
 
         and:
         childBuildScript.waitForAllPendingCalls()
-        assertHasBuildPhase("0% CONFIGURING")
+        assertHasBuildPhase("0% INITIALIZING")
         childBuildScript.releaseAll()
 
         and:
@@ -185,6 +187,11 @@ abstract class AbstractConsoleBuildPhaseFunctionalTest extends AbstractConsoleGr
         childTaskGraph.waitForAllPendingCalls()
         assertHasBuildPhase("100% CONFIGURING")
         childTaskGraph.releaseAll()
+
+        and:
+        childTaskGraph2.waitForAllPendingCalls()
+        assertHasBuildPhase("100% CONFIGURING")
+        childTaskGraph2.releaseAll()
 
         and:
         task1.waitForAllPendingCalls()
@@ -205,6 +212,7 @@ abstract class AbstractConsoleBuildPhaseFunctionalTest extends AbstractConsoleGr
         gradle.waitForFinish()
     }
 
+    @ToBeFixedForConfigurationCache(because = "Gradle.buildFinished", skip =  ToBeFixedForConfigurationCache.Skip.LONG_TIMEOUT)
     def "shows progress bar and percent phase completion with buildSrc build"() {
         settingsFile << """
             ${server.callFromBuild('settings')}
@@ -278,7 +286,7 @@ abstract class AbstractConsoleBuildPhaseFunctionalTest extends AbstractConsoleGr
 
         and:
         rootBuildScript.waitForAllPendingCalls()
-        assertHasBuildPhase("0% CONFIGURING")
+        assertHasBuildPhase("75% CONFIGURING")
         rootBuildScript.releaseAll()
 
         and:
@@ -295,10 +303,7 @@ abstract class AbstractConsoleBuildPhaseFunctionalTest extends AbstractConsoleGr
         gradle.waitForFinish()
     }
 
-    @ToBeFixedForInstantExecution(
-        skip = ToBeFixedForInstantExecution.Skip.UNROLLED_FAILS_IN_SUBCLASS,
-        bottomSpecs = "AutoConsoleBuildPhaseFunctionalTest"
-    )
+    @ToBeFixedForConfigurationCache(because = "Gradle.buildFinished", skip =  ToBeFixedForConfigurationCache.Skip.LONG_TIMEOUT)
     def "shows progress bar and percent phase completion with artifact transforms"() {
         given:
         settingsFile << """
@@ -324,7 +329,7 @@ abstract class AbstractConsoleBuildPhaseFunctionalTest extends AbstractConsoleGr
                 void transform(TransformOutputs outputs) {
                     def input = inputArtifact.get().asFile
                     ${server.callFromBuild('size-transform')}
-                    File output = outputs.registerOutput(input.name + parameters.suffix)
+                    File output = outputs.file(input.name + parameters.suffix)
                     output.text = String.valueOf(input.length())
                 }
             }
@@ -388,6 +393,7 @@ abstract class AbstractConsoleBuildPhaseFunctionalTest extends AbstractConsoleGr
 
                     doLast {
                         ${server.callFromBuild('resolve-task')}
+                        size.artifactFiles.files.each { println it }
                     }
                 }
             }

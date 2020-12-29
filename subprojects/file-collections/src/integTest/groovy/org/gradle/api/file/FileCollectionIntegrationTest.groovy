@@ -18,7 +18,7 @@ package org.gradle.api.file
 
 import org.gradle.api.tasks.TasksWithInputsAndOutputs
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import spock.lang.Issue
 import spock.lang.Unroll
 
@@ -74,7 +74,7 @@ class FileCollectionIntegrationTest extends AbstractIntegrationSpec implements T
         succeeds()
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache(because = "collection closure called on cache store")
     def "task @InputFiles file collection closure is called once only when task executes"() {
         taskTypeWithInputFileCollection()
         buildFile << """
@@ -95,7 +95,7 @@ class FileCollectionIntegrationTest extends AbstractIntegrationSpec implements T
         output.count("calculating value") == 2 // once for task dependency calculation, once for task execution
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache(because = "collection provider called on cache store")
     def "task @InputFiles file collection provider is called once only when task executes"() {
         taskTypeWithInputFileCollection()
         buildFile << """
@@ -141,6 +141,92 @@ class FileCollectionIntegrationTest extends AbstractIntegrationSpec implements T
         then:
         result.assertTasksExecuted(":produce1", ":produce2", ":merge")
         file("merge.txt").text == "one,two"
+    }
+
+    @Issue("https://github.com/gradle/gradle/issues/12832")
+    def "can use += convenience in Groovy DSL to add elements to file collection when property has legacy setter"() {
+        taskTypeLogsInputFileCollectionContent()
+        buildFile << """
+            class LegacyTask extends ShowFilesTask {
+                void setInFiles(def c) {
+                    inFiles.from = c
+                }
+            }
+
+            def files1 = files('a.txt')
+            def files2 = files('b.txt')
+            task merge(type: LegacyTask) {
+                inFiles += files1
+                inFiles += files2
+            }
+        """
+        file('a.txt').text = 'a'
+        file('b.txt').text = 'b'
+
+        when:
+        run("merge")
+
+        then:
+        outputContains("result = [a.txt, b.txt]")
+    }
+
+    @Issue("https://github.com/gradle/gradle/issues/12832")
+    def "can compose and filter a file collection that includes the collection it replaces"() {
+        taskTypeLogsInputFileCollectionContent()
+        buildFile << """
+            class LegacyTask extends ShowFilesTask {
+                void setInFiles(def c) {
+                    inFiles.from = c
+                }
+            }
+
+            def files1 = files('a.txt', 'a.bin')
+            def files2 = files('b.txt', 'b.bin')
+            task merge(type: LegacyTask) {
+                inFiles = files1
+                inFiles = files(inFiles, files2).filter { f -> f.name.endsWith('.txt') }
+            }
+        """
+        file('a.txt').text = 'a'
+        file('a.bin').text = 'ignore-me'
+        file('b.txt').text = 'b'
+        file('b.bin').text = 'ignore-me'
+
+        when:
+        run("merge")
+
+        then:
+        outputContains("result = [a.txt, b.txt]")
+    }
+
+    @Issue("https://github.com/gradle/gradle/issues/13745")
+    def "can compose and filter a file collection to rearrange its elements"() {
+        taskTypeLogsInputFileCollectionContent()
+        buildFile << """
+            class LegacyTask extends ShowFilesTask {
+                void setInFiles(def c) {
+                    inFiles.from = c
+                }
+            }
+
+            def files1 = files('a.txt', 'a.bin')
+            def files2 = files('b.txt', 'b.bin')
+            task merge(type: LegacyTask) {
+                inFiles = files1
+                def sum = inFiles.plus(files2)
+                inFiles = sum.filter { f -> f.name.endsWith('.txt') } + sum.filter { f -> f.name.endsWith('.bin') }
+            }
+        """
+        file('a.txt').text = 'a1'
+        file('a.bin').text = 'a2'
+        file('b.txt').text = 'b1'
+        file('b.bin').text = 'b2'
+
+        when:
+        run("merge")
+
+        then:
+        outputContains("result = [a.txt, b.txt, a.bin, b.bin]")
     }
 
     def "can subtract the elements of another file collection"() {

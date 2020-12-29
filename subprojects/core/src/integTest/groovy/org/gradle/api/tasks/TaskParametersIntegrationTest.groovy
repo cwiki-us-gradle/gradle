@@ -23,8 +23,8 @@ import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
 import org.gradle.api.provider.SetProperty
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.TestBuildCache
+import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
 import org.gradle.internal.Actions
 import spock.lang.Issue
 import spock.lang.Unroll
@@ -73,7 +73,6 @@ class TaskParametersIntegrationTest extends AbstractIntegrationSpec {
     }
 
     @Issue("https://issues.gradle.org/browse/GRADLE-3435")
-    @ToBeFixedForInstantExecution
     def "task is not up-to-date after file moved between input properties"() {
         (1..3).each {
             file("input${it}.txt").createNewFile()
@@ -136,7 +135,6 @@ class TaskParametersIntegrationTest extends AbstractIntegrationSpec {
     }
 
     @Issue("https://issues.gradle.org/browse/GRADLE-3435")
-    @ToBeFixedForInstantExecution
     def "task is not up-to-date after swapping directories between output properties"() {
         file("buildSrc/src/main/groovy/TaskWithTwoOutputDirectoriesProperties.groovy") << """
             import org.gradle.api.*
@@ -247,7 +245,6 @@ class TaskParametersIntegrationTest extends AbstractIntegrationSpec {
         succeeds "b" assertTasksExecutedInOrder ":a", ":b"
     }
 
-    @ToBeFixedForInstantExecution
     def "task is out of date when property added"() {
         buildFile << """
 task someTask {
@@ -285,7 +282,6 @@ someTask.inputs.property("b", 12)
         skipped(":someTask")
     }
 
-    @ToBeFixedForInstantExecution
     def "task is out of date when property removed"() {
         buildFile << """
 task someTask {
@@ -329,7 +325,6 @@ task someTask {
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution
     def "task is out of date when property type changes #oldValue -> #newValue"() {
         buildFile << """
 task someTask {
@@ -378,8 +373,81 @@ task someTask {
         "123"                | "123 as short"
     }
 
+    def "invalid task causes VFS to drop"() {
+        buildFile << """
+            class InvalidTask extends DefaultTask {
+                @Optional @Input File inputFile
+
+                @TaskAction void execute() {
+                    println "Executed"
+                }
+            }
+
+            task invalid(type: InvalidTask)
+        """
+
+        executer.expectDocumentedDeprecationWarning("Property 'inputFile' has @Input annotation used on property of type 'File'. " +
+            "This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. " +
+            "Execution optimizations are disabled due to the failed validation. " +
+            "See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+
+        when:
+        run "invalid", "--info"
+        then:
+        executedAndNotSkipped(":invalid")
+        outputContains("Invalidating VFS because task ':invalid' failed validation")
+    }
+
+    def "validation warnings are displayed once"() {
+        buildFile << """
+            class InvalidTask extends DefaultTask {
+                @Optional @Input File inputFile
+
+                @TaskAction void execute() {
+                    println "Executed"
+                }
+            }
+
+            task invalid(type: InvalidTask)
+        """
+
+        executer.expectDocumentedDeprecationWarning("Property 'inputFile' has @Input annotation used on property of type 'File'. " +
+            "This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. " +
+            "Execution optimizations are disabled due to the failed validation. " +
+            "See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+
+        when:
+        run "invalid"
+        then:
+        executedAndNotSkipped(":invalid")
+        output.count("- Property 'inputFile' has @Input annotation used on property of type 'File'.") == 1
+    }
+
+    def "validation warnings are reported even when task is skipped"() {
+        buildFile << """
+            class InvalidTask extends SourceTask {
+                @Optional @Input File inputFile
+
+                @TaskAction void execute() {
+                    println "Executed"
+                }
+            }
+
+            task invalid(type: InvalidTask)
+        """
+
+        executer.expectDocumentedDeprecationWarning("Property 'inputFile' has @Input annotation used on property of type 'File'. " +
+            "This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. " +
+            "Execution optimizations are disabled due to the failed validation. " +
+            "See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+
+        when:
+        run "invalid"
+        then:
+        skipped(":invalid")
+    }
+
     @Unroll
-    @ToBeFixedForInstantExecution
     def "task can use input property of type #type"() {
         file("buildSrc/src/main/java/SomeTask.java") << """
 import org.gradle.api.DefaultTask;
@@ -398,7 +466,7 @@ public class SomeTask extends DefaultTask {
     File d;
     @OutputDirectory
     public File getD() { return d; }
-    
+
     @TaskAction
     public void go() { }
 }
@@ -410,8 +478,14 @@ task someTask(type: SomeTask) {
     d = file("build/out")
 }
 """
-        if (expectDeprecation) {
-            executer.beforeExecute { executer.expectDeprecationWarning() }
+        if (expectedValidationProblem) {
+            executer.beforeExecute {
+                executer.expectDocumentedDeprecationWarning(expectedValidationProblem + " " +
+                    "This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. " +
+                    "Execution optimizations are disabled due to the failed validation. " +
+                    "See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details."
+                )
+            }
         }
 
         given:
@@ -421,51 +495,63 @@ task someTask(type: SomeTask) {
         run "someTask"
 
         then:
-        skipped(":someTask")
+        if (expectedValidationProblem) {
+            executedAndNotSkipped(":someTask")
+        } else {
+            skipped(":someTask")
+        }
 
         when:
         buildFile.replace("v = $initialValue", "v = $newValue")
-        executer.withArgument("-i")
+        executer.withArgument("--info")
         run "someTask"
 
         then:
         executedAndNotSkipped(":someTask")
-        outputContains("Value of input property 'v' has changed for task ':someTask'")
+        if (expectedValidationProblem) {
+            outputContains("Validation failed.")
+        } else {
+            outputContains("Value of input property 'v' has changed for task ':someTask'")
+        }
 
         when:
         run "someTask"
 
         then:
-        skipped(":someTask")
+        if (expectedValidationProblem) {
+            executedAndNotSkipped(":someTask")
+        } else {
+            skipped(":someTask")
+        }
 
         where:
-        type                                  | initialValue                                          | newValue                                                     | expectDeprecation
-        "String"                              | "'value 1'"                                           | "'value 2'"                                                  | false
-        "java.io.File"                        | "file('file1')"                                       | "file('file2')"                                              | true
-        "boolean"                             | "true"                                                | "false"                                                      | false
-        "Boolean"                             | "Boolean.TRUE"                                        | "Boolean.FALSE"                                              | false
-        "int"                                 | "123"                                                 | "-45"                                                        | false
-        "Integer"                             | "123"                                                 | "-45"                                                        | false
-        "long"                                | "123"                                                 | "-45"                                                        | false
-        "Long"                                | "123"                                                 | "-45"                                                        | false
-        "short"                               | "123"                                                 | "-45"                                                        | false
-        "Short"                               | "123"                                                 | "-45"                                                        | false
-        "java.math.BigDecimal"                | "12.3"                                                | "-45.432"                                                    | false
-        "java.math.BigInteger"                | "12"                                                  | "-45"                                                        | false
-        "java.util.List<String>"              | "['value1', 'value2']"                                | "['value1']"                                                 | false
-        "java.util.List<String>"              | "[]"                                                  | "['value1', null, false, 123, 12.4, ['abc'], [true] as Set]" | false
-        "String[]"                            | "new String[0]"                                       | "['abc'] as String[]"                                        | false
-        "Object[]"                            | "[123, 'abc'] as Object[]"                            | "['abc'] as String[]"                                        | false
-        "java.util.Collection<String>"        | "['value1', 'value2']"                                | "['value1'] as SortedSet"                                    | false
-        "java.util.Set<String>"               | "['value1', 'value2'] as Set"                         | "['value1'] as Set"                                          | false
-        "Iterable<java.io.File>"              | "[file('1'), file('2')] as Set"                       | "files('1')"                                                 | false
-        FileCollection.name                   | "files('1', '2')"                                     | "configurations.create('empty')"                             | true
-        "java.util.Map<String, Boolean>"      | "[a: true, b: false]"                                 | "[a: true, b: true]"                                         | false
-        "${Provider.name}<String>"            | "providers.provider { 'a' }"                          | "providers.provider { 'b' }"                                 | false
-        "${Property.name}<String>"            | "objects.property(String); v.set('abc')"              | "objects.property(String); v.set('123')"                     | true
-        "${ListProperty.name}<String>"        | "objects.listProperty(String); v.set(['abc'])"        | "objects.listProperty(String); v.set(['123'])"               | false
-        "${SetProperty.name}<String>"         | "objects.setProperty(String); v.set(['abc'])"         | "objects.setProperty(String); v.set(['123'])"                | false
-        "${MapProperty.name}<String, Number>" | "objects.mapProperty(String, Number); v.set([a: 12])" | "objects.mapProperty(String, Number); v.set([a: 10])"        | false
+        type                                  | initialValue                                          | newValue                                                     | expectedValidationProblem
+        "String"                              | "'value 1'"                                           | "'value 2'"                                                  | null
+        "java.io.File"                        | "file('file1')"                                       | "file('file2')"                                              | "Property 'v' has @Input annotation used on property of type 'File'."
+        "boolean"                             | "true"                                                | "false"                                                      | null
+        "Boolean"                             | "Boolean.TRUE"                                        | "Boolean.FALSE"                                              | null
+        "int"                                 | "123"                                                 | "-45"                                                        | null
+        "Integer"                             | "123"                                                 | "-45"                                                        | null
+        "long"                                | "123"                                                 | "-45"                                                        | null
+        "Long"                                | "123"                                                 | "-45"                                                        | null
+        "short"                               | "123"                                                 | "-45"                                                        | null
+        "Short"                               | "123"                                                 | "-45"                                                        | null
+        "java.math.BigDecimal"                | "12.3"                                                | "-45.432"                                                    | null
+        "java.math.BigInteger"                | "12"                                                  | "-45"                                                        | null
+        "java.util.List<String>"              | "['value1', 'value2']"                                | "['value1']"                                                 | null
+        "java.util.List<String>"              | "[]"                                                  | "['value1', null, false, 123, 12.4, ['abc'], [true] as Set]" | null
+        "String[]"                            | "new String[0]"                                       | "['abc'] as String[]"                                        | null
+        "Object[]"                            | "[123, 'abc'] as Object[]"                            | "['abc'] as String[]"                                        | null
+        "java.util.Collection<String>"        | "['value1', 'value2']"                                | "['value1'] as SortedSet"                                    | null
+        "java.util.Set<String>"               | "['value1', 'value2'] as Set"                         | "['value1'] as Set"                                          | null
+        "Iterable<java.io.File>"              | "[file('1'), file('2')] as Set"                       | "files('1')"                                                 | null
+        FileCollection.name                   | "files('1', '2')"                                     | "configurations.create('empty')"                             | "Property 'v' has @Input annotation used on property of type 'FileCollection'."
+        "java.util.Map<String, Boolean>"      | "[a: true, b: false]"                                 | "[a: true, b: true]"                                         | null
+        "${Provider.name}<String>"            | "providers.provider { 'a' }"                          | "providers.provider { 'b' }"                                 | null
+        "${Property.name}<String>"            | "objects.property(String); v.set('abc')"              | "objects.property(String); v.set('123')"                     | "Property 'v' of mutable type 'org.gradle.api.provider.Property' is writable. Properties of this type should be read-only and mutated via the value itself."
+        "${ListProperty.name}<String>"        | "objects.listProperty(String); v.set(['abc'])"        | "objects.listProperty(String); v.set(['123'])"               | null
+        "${SetProperty.name}<String>"         | "objects.setProperty(String); v.set(['abc'])"         | "objects.setProperty(String); v.set(['123'])"                | null
+        "${MapProperty.name}<String, Number>" | "objects.mapProperty(String, Number); v.set([a: 12])" | "objects.mapProperty(String, Number); v.set([a: 10])"        | null
     }
 
     def "null input properties registered via TaskInputs.property are not allowed"() {
@@ -614,7 +700,7 @@ task someTask(type: SomeTask) {
         failure.assertHasCause(message.replace("<PATH>", file(path).absolutePath))
 
         where:
-        method  | path             | message
+        method  | path              | message
         "file"  | "output-dir"      | "Cannot write to file '<PATH>' specified for property 'output' as it is a directory."
         "files" | "output-dir"      | "Cannot write to file '<PATH>' specified for property 'output' as it is a directory."
         "dir"   | "output-file.txt" | "Directory '<PATH>' specified for property 'output' is not a directory."
@@ -643,7 +729,7 @@ task someTask(type: SomeTask) {
                 public Foo() {
                     getInputs().property("a", null).optional(true);
                 }
-                
+
                 @TaskAction
                 public void doSomething() {}
             }
@@ -657,86 +743,125 @@ task someTask(type: SomeTask) {
         succeeds "foo"
     }
 
-    @ToBeFixedForInstantExecution
     def "input and output properties are not evaluated too often"() {
-        buildFile << """ 
-            @CacheableTask    
-            class CustomTask extends DefaultTask {
-                @Internal
+        buildFile << """
+            import org.gradle.api.services.BuildServiceParameters
+
+            abstract class EvaluationCountBuildService implements BuildService<BuildServiceParameters.None> {
                 int outputFileCount = 0
-                @Internal
                 int inputFileCount = 0
-                @Internal
                 int inputValueCount = 0
-                @Internal
                 int nestedInputCount = 0
-                @Internal
                 int nestedInputValueCount = 0
 
+                void outputFile() {
+                    outputFileCount++
+                }
+
+                void inputFile() {
+                    inputFileCount++
+                }
+
+                void inputValue() {
+                    inputValueCount++
+                }
+
+                void nestedInput() {
+                    nestedInputCount++
+                }
+
+                void nestedInputValue() {
+                    nestedInputValueCount++
+                }
+            }
+            def evaluationCount = project.getGradle().getSharedServices().registerIfAbsent("evaluationCount", EvaluationCountBuildService) {}
+
+            @CacheableTask
+            abstract class CustomTask extends DefaultTask {
+
+                @Inject
+                abstract ProjectLayout getLayout()
+
+                @Internal
+                abstract Property<EvaluationCountBuildService> getEvaluationCountService()
+
                 private NestedBean bean = new NestedBean()
-                
+
                 @OutputFile
                 File getOutputFile() {
-                    count("outputFile", ++outputFileCount)
-                    return project.file('build/foo.bar')
-                }        
-                
+                    count("outputFile")
+                    return layout.buildDirectory.file("foo.bar").get().asFile
+                }
+
                 @InputFile
                 @PathSensitive(PathSensitivity.NONE)
                 File getInputFile() {
-                    count("inputFile", ++inputFileCount)
-                    return project.file('input.txt')
+                    count("inputFile")
+                    return layout.projectDirectory.file("input.txt").asFile
                 }
-                
+
                 @Input
                 String getInput() {
-                    count("inputValue", ++inputValueCount)
+                    count("inputValue")
                     return "Input"
                 }
-                
+
                 @Nested
                 Object getBean() {
-                    count("nestedInput", ++nestedInputCount)
+                    count("nestedInput")
                     return bean
                 }
-                
+
                 @TaskAction
                 void doStuff() {
                     outputFile.text = inputFile.text
                 }
-                
-                void count(String name, int currentValue) {
-                    println "Evaluating \${name} \${currentValue}"                
+
+                void count(String name) {
+                    def service = evaluationCountService.get()
+                    service."\${name}"()
+                    def currentValue = service."\${name}Count"
+                    println "Evaluating \${name} \${currentValue}"
                 }
-                                
+
                 class NestedBean {
                     @Input getFirst() {
-                        count("nestedInputValue", ++nestedInputValueCount)
+                        count("nestedInputValue")
                         return "first"
                     }
-                    
+
                     @Input getSecond() {
                         return "second"
                     }
                 }
             }
-            
-            task myTask(type: CustomTask)
-            
+
+            task myTask(type: CustomTask) {
+                evaluationCountService = evaluationCount
+            }
+
             task assertInputCounts {
                 dependsOn myTask
+                def propertyNames = ['outputFileCount', 'inputFileCount', 'inputValueCount', 'nestedInputCount', 'nestedInputValueCount']
+                def gradleProperties = propertyNames.collectEntries { [(it) : providers.gradleProperty(it)]}
                 doLast {
                     ['outputFileCount', 'inputFileCount', 'inputValueCount', 'nestedInputCount', 'nestedInputValueCount'].each { name ->
-                        assert myTask."\$name" == project.property(name) as Integer                    
+                        assert evaluationCount.get()."\$name" == gradleProperties[name].get() as Integer
                     }
                 }
             }
         """
         def inputFile = file('input.txt')
         inputFile.text = "input"
-        def expectedCounts = [inputFile: 3, outputFile: 3, nestedInput: 3, inputValue: 1, nestedInputValue: 1]
-        def expectedUpToDateCounts = [inputFile: 2, outputFile: 2, nestedInput: 3, inputValue: 1, nestedInputValue: 1]
+        def expectedCounts = [inputFile: 3, outputFile: 2, nestedInput: 2, inputValue: 1, nestedInputValue: 1]
+        def expectedIncrementalCounts = GradleContextualExecuter.configCache ?
+            [inputFile: 2, outputFile: 2, nestedInput: 1, inputValue: 1, nestedInputValue: 1]
+            : expectedCounts
+        def expectedUpToDateCounts = GradleContextualExecuter.configCache ?
+            [inputFile: 1, outputFile: 1, nestedInput: 1, inputValue: 1, nestedInputValue: 1]
+            : [inputFile: 2, outputFile: 1, nestedInput: 2, inputValue: 1, nestedInputValue: 1]
         def arguments = ["assertInputCounts"] + expectedCounts.collect { name, count -> "-P${name}Count=${count}" }
+        def incrementalBuildArguments = ["assertInputCounts"] + expectedIncrementalCounts.collect { name, count -> "-P${name}Count=${count}" }
         def upToDateArguments = ["assertInputCounts"] + expectedUpToDateCounts.collect { name, count -> "-P${name}Count=${count}" }
         def localCache = new TestBuildCache(file('cache-dir'))
         settingsFile << localCache.localCacheConfiguration()
@@ -748,7 +873,7 @@ task someTask(type: SomeTask) {
         when:
         inputFile.text = "changed"
         then:
-        withBuildCache().succeeds(*arguments)
+        withBuildCache().succeeds(*incrementalBuildArguments)
         executedAndNotSkipped(':myTask')
         and:
         succeeds(*upToDateArguments)

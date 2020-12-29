@@ -16,14 +16,16 @@
 
 package org.gradle.composite.internal;
 
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.gradle.BuildResult;
 import org.gradle.api.GradleException;
+import org.gradle.api.Task;
 import org.gradle.api.execution.TaskExecutionGraph;
 import org.gradle.api.execution.TaskExecutionGraphListener;
+import org.gradle.api.internal.TaskInternal;
+import org.gradle.api.internal.project.ProjectStateRegistry;
 import org.gradle.api.internal.project.taskfactory.TaskIdentity;
 import org.gradle.execution.MultipleBuildFailures;
+import org.gradle.execution.taskgraph.TaskExecutionGraphInternal;
 import org.gradle.execution.taskgraph.TaskListenerInternal;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.build.IncludedBuildState;
@@ -35,6 +37,9 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -50,6 +55,7 @@ class DefaultIncludedBuildController implements Runnable, Stoppable, IncludedBui
     private static final Logger LOGGER = LoggerFactory.getLogger(DefaultIncludedBuildController.class);
     private final IncludedBuildState includedBuild;
     private final ResourceLockCoordinationService coordinationService;
+    private final ProjectStateRegistry projectStateRegistry;
 
     private enum State {
         CollectingTasks, RunningTasks
@@ -58,20 +64,21 @@ class DefaultIncludedBuildController implements Runnable, Stoppable, IncludedBui
     // Fields guarded by lock
     private final Lock lock = new ReentrantLock();
     private final Condition stateChange = lock.newCondition();
-    private final Map<String, TaskState> tasks = Maps.newLinkedHashMap();
-    private final Set<String> tasksAdded = Sets.newHashSet();
-    private final List<Throwable> taskFailures = new ArrayList<Throwable>();
+    private final Map<String, TaskState> tasks = new LinkedHashMap<>();
+    private final Set<String> tasksAdded = new HashSet<>();
+    private final List<Throwable> taskFailures = new ArrayList<>();
     private State state = State.CollectingTasks;
     private boolean stopRequested;
 
-    public DefaultIncludedBuildController(IncludedBuildState includedBuild, ResourceLockCoordinationService coordinationService) {
+    public DefaultIncludedBuildController(IncludedBuildState includedBuild, ResourceLockCoordinationService coordinationService, ProjectStateRegistry projectStateRegistry) {
         this.includedBuild = includedBuild;
         this.coordinationService = coordinationService;
+        this.projectStateRegistry = projectStateRegistry;
     }
 
     @Override
     public boolean populateTaskGraph() {
-        Set<String> tasksToExecute = Sets.newLinkedHashSet();
+        Set<String> tasksToExecute = new LinkedHashSet<>();
         lock.lock();
         try {
             if (state != State.CollectingTasks) {
@@ -127,25 +134,38 @@ class DefaultIncludedBuildController implements Runnable, Stoppable, IncludedBui
 
     @Override
     public void awaitTaskCompletion(Collection<? super Throwable> taskFailures) {
-        lock.lock();
-        try {
-            while (state == State.RunningTasks) {
-                try {
-                    stateChange.await();
-                } catch (InterruptedException e) {
-                    throw UncheckedException.throwAsUncheckedException(e);
+        // Ensure that this thread does not hold locks while waiting and so prevent this work from completing
+        projectStateRegistry.blocking(() -> {
+            lock.lock();
+            try {
+                while (state == State.RunningTasks) {
+                    awaitStateChange();
                 }
+                taskFailures.addAll(this.taskFailures);
+                this.taskFailures.clear();
+            } finally {
+                lock.unlock();
             }
-            taskFailures.addAll(this.taskFailures);
-            this.taskFailures.clear();
-        } finally {
-            lock.unlock();
+        });
+    }
+
+    @Override
+    public TaskInternal getTask(String taskPath) {
+        for (Task task : getTaskGraph().getAllTasks()) {
+            if (task.getPath().equals(taskPath)) {
+                return (TaskInternal) task;
+            }
         }
+        throw includedBuildTaskWasNeverScheduled(taskPath);
+    }
+
+    private TaskExecutionGraphInternal getTaskGraph() {
+        return includedBuild.getBuild().getTaskGraph();
     }
 
     @Override
     public void stop() {
-        ArrayList<Throwable> failures = new ArrayList<Throwable>();
+        ArrayList<Throwable> failures = new ArrayList<>();
         awaitTaskCompletion(failures);
         if (!failures.isEmpty()) {
             throw new MultipleBuildFailures(failures);
@@ -164,16 +184,12 @@ class DefaultIncludedBuildController implements Runnable, Stoppable, IncludedBui
         lock.lock();
         try {
             while (state == State.CollectingTasks && !stopRequested) {
-                try {
-                    stateChange.await();
-                } catch (InterruptedException e) {
-                    throw UncheckedException.throwAsUncheckedException(e);
-                }
+                awaitStateChange();
             }
             if (stopRequested) {
                 return null;
             }
-            Set<String> tasksToExecute = Sets.newLinkedHashSet();
+            Set<String> tasksToExecute = new LinkedHashSet<>();
             for (Map.Entry<String, TaskState> taskEntry : tasks.entrySet()) {
                 if (taskEntry.getValue().status == TaskStatus.QUEUED) {
                     tasksToExecute.add(taskEntry.getKey());
@@ -183,6 +199,14 @@ class DefaultIncludedBuildController implements Runnable, Stoppable, IncludedBui
             return tasksToExecute;
         } finally {
             lock.unlock();
+        }
+    }
+
+    private void awaitStateChange() {
+        try {
+            stateChange.await();
+        } catch (InterruptedException e) {
+            throw UncheckedException.throwAsUncheckedException(e);
         }
     }
 
@@ -269,7 +293,7 @@ class DefaultIncludedBuildController implements Runnable, Stoppable, IncludedBui
         try {
             TaskState state = tasks.get(taskPath);
             if (state == null) {
-                throw new IllegalStateException("Included build task '" + taskPath + "' was never scheduled for execution.");
+                throw includedBuildTaskWasNeverScheduled(taskPath);
             }
             if (state.status == TaskStatus.FAILED) {
                 return FAILED;
@@ -281,6 +305,10 @@ class DefaultIncludedBuildController implements Runnable, Stoppable, IncludedBui
         } finally {
             lock.unlock();
         }
+    }
+
+    private IllegalStateException includedBuildTaskWasNeverScheduled(String taskPath) {
+        return new IllegalStateException("Included build task '" + taskPath + "' was never scheduled for execution.");
     }
 
     private enum TaskStatus {QUEUED, EXECUTING, FAILED, SUCCESS}
@@ -307,11 +335,11 @@ class DefaultIncludedBuildController implements Runnable, Stoppable, IncludedBui
         }
 
         @Override
-        public void beforeExecute(TaskIdentity taskIdentity) {
+        public void beforeExecute(TaskIdentity<?> taskIdentity) {
         }
 
         @Override
-        public void afterExecute(TaskIdentity taskIdentity, org.gradle.api.tasks.TaskState state) {
+        public void afterExecute(TaskIdentity<?> taskIdentity, org.gradle.api.tasks.TaskState state) {
             Throwable failure = state.getFailure();
             taskCompleted(taskIdentity.getTaskPath(), failure);
         }

@@ -18,6 +18,7 @@ package org.gradle.kotlin.dsl.resolver
 
 import com.nhaarman.mockito_kotlin.doReturn
 import com.nhaarman.mockito_kotlin.mock
+import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
 
 import org.gradle.kotlin.dsl.fixtures.AbstractKotlinIntegrationTest
 
@@ -29,7 +30,7 @@ import org.hamcrest.CoreMatchers.nullValue
 import org.hamcrest.Matcher
 
 import org.junit.Assert.assertSame
-import org.junit.Assert.assertThat
+import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -64,7 +65,7 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
         val javaHome = System.getProperty("java.home")
         val env = arrayOf("gradleJavaHome" to javaHome)
         assertThat(
-            resolvedScriptDependencies(env = *env)?.javaHome,
+            resolvedScriptDependencies(env = env)?.javaHome,
             equalTo(javaHome)
         )
     }
@@ -113,6 +114,7 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
 
     @Test
     fun `succeeds on precompiled init script`() {
+        assumeNonEmbeddedGradleExecuter()
 
         withKotlinBuildSrc()
 
@@ -124,12 +126,15 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
 
     @Test
     fun `succeeds on precompiled settings script`() {
+        assumeNonEmbeddedGradleExecuter()
 
         withKotlinBuildSrc()
 
-        withDefaultSettings().appendText("""
+        withDefaultSettings().appendText(
+            """
             apply(plugin = "my-plugin")
-        """)
+            """
+        )
 
         assertSucceedsForScriptWithReceiver(
             "buildSrc/src/main/kotlin/my-plugin.settings.gradle.kts",
@@ -139,14 +144,17 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
 
     @Test
     fun `succeeds on precompiled project script`() {
+        assumeNonEmbeddedGradleExecuter()
 
         withKotlinBuildSrc()
 
-        withBuildScript("""
+        withBuildScript(
+            """
             plugins {
                 id("my-plugin")
             }
-        """)
+            """
+        )
 
         assertSucceedsForScriptWithReceiver(
             "buildSrc/src/main/kotlin/my-plugin.gradle.kts",
@@ -169,13 +177,17 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
 
     @Test
     fun `pass environment`() {
+        assumeNonEmbeddedGradleExecuter()
+
         assertSucceeds(
-            withBuildScript("""
+            withBuildScript(
+                """
                 require(System.getProperty("myJvmSysProp") == "systemValue") { "gradleJvmOptions" }
                 require(System.getProperty("myGradleSysProp") == "systemValue") { "gradleOptions system property" }
                 require(findProperty("myGradleProp") == "gradleValue") { "gradleOptions Gradle property" }
                 require(System.getenv("myEnvVar") == "envValue") { "gradleEnvironmentVariables" }
-            """),
+                """
+            ),
             "gradleJvmOptions" to listOf("-DmyJvmSysProp=systemValue"),
             "gradleOptions" to listOf("-DmyGradleSysProp=systemValue", "-PmyGradleProp=gradleValue"),
             "gradleEnvironmentVariables" to mapOf("myEnvVar" to "envValue")
@@ -189,7 +201,7 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
         val editedScript = withBuildScript("")
 
         val wrongEnv = arrayOf("gradleHome" to existing("absent"))
-        resolvedScriptDependencies(editedScript, env = *wrongEnv).apply {
+        resolvedScriptDependencies(editedScript, env = wrongEnv).apply {
             assertThat(this, nullValue())
         }
 
@@ -224,9 +236,12 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
         // thus disabling syntax highlighting
 
         withKotlinBuildSrc()
-        withFile("buildSrc/src/main/kotlin/Foo.kt", """
+        withFile(
+            "buildSrc/src/main/kotlin/Foo.kt",
+            """
             BOOM
-        """)
+            """
+        )
 
         val editedScript = withBuildScript("")
 
@@ -267,10 +282,13 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
     @Test
     fun `do not report file warning on script compilation failure in currently edited script`() {
         // because the IDE already provides user feedback for those
+        assumeNonEmbeddedGradleExecuter()
 
-        val editedScript = withBuildScript("""
+        val editedScript = withBuildScript(
+            """
             doNotExists()
-        """)
+            """
+        )
 
         resolvedScriptDependencies(editedScript).apply {
             assertContainsBasicDependencies()
@@ -284,14 +302,20 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
 
     @Test
     fun `report file warning on script compilation failure in another script`() {
+        assumeNonEmbeddedGradleExecuter()
 
-        withDefaultSettings().appendText("""
+        withDefaultSettings().appendText(
+            """
             include("a", "b")
-        """)
+            """
+        )
         withBuildScript("")
-        withBuildScriptIn("a", """
+        withBuildScriptIn(
+            "a",
+            """
             doNotExists()
-        """)
+            """
+        )
         val editedScript = withBuildScriptIn("b", "")
 
         resolvedScriptDependencies(editedScript).apply {
@@ -306,10 +330,13 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
 
     @Test
     fun `report file warning on runtime failure in currently edited script`() {
+        assumeNonEmbeddedGradleExecuter()
 
-        val editedScript = withBuildScript("""
+        val editedScript = withBuildScript(
+            """
             configurations.getByName("doNotExists")
-        """)
+            """
+        )
 
         resolvedScriptDependencies(editedScript).apply {
             assertContainsBasicDependencies()
@@ -323,13 +350,19 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
 
     @Test
     fun `report line warning on runtime failure in currently edited script when location aware hints are enabled`() {
+        assumeNonEmbeddedGradleExecuter()
 
-        withFile("gradle.properties", """
+        withFile(
+            "gradle.properties",
+            """
             ${EditorReports.locationAwareEditorHintsPropertyName}=true
-        """)
-        val editedScript = withBuildScript("""
+            """
+        )
+        val editedScript = withBuildScript(
+            """
             configurations.getByName("doNotExists")
-        """)
+            """
+        )
 
         resolvedScriptDependencies(editedScript).apply {
             assertContainsBasicDependencies()
@@ -343,14 +376,20 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
 
     @Test
     fun `report file warning on runtime failure in another script`() {
+        assumeNonEmbeddedGradleExecuter()
 
-        withDefaultSettings().appendText("""
+        withDefaultSettings().appendText(
+            """
             include("a", "b")
-        """)
+            """
+        )
         withBuildScript("")
-        withBuildScriptIn("a", """
+        withBuildScriptIn(
+            "a",
+            """
             configurations.getByName("doNotExists")
-        """)
+            """
+        )
         val editedScript = withBuildScriptIn("b", "")
 
 
@@ -374,9 +413,10 @@ class KotlinScriptDependenciesResolverTest : AbstractKotlinIntegrationTest() {
     fun environment(vararg entries: Pair<String, Any?>) =
         mapOf(
             "projectRoot" to projectRoot,
-            "gradleHome" to distribution.gradleHomeDir,
             "gradleUserHome" to buildContext.gradleUserHomeDir.canonicalPath
-        ) + entries.toMap()
+        ) + (
+            if (GradleContextualExecuter.isEmbedded()) emptyMap() else mapOf("gradleHome" to distribution.gradleHomeDir)
+            ) + entries.toMap()
 
     private
     fun resolvedScriptDependencies(

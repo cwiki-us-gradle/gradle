@@ -54,9 +54,19 @@ abstract class AbstractDaemonFixture implements DaemonFixture {
 
     @Override
     boolean logContains(String searchString) {
+        logContains(0, searchString)
+    }
+
+    @Override
+    boolean logContains(long fromLine, String searchString) {
         Files.lines(logFile.toPath()).withCloseable { lines ->
-            lines.anyMatch{ it.contains(searchString) }
+            lines.skip(fromLine).anyMatch{ it.contains(searchString) }
         }
+    }
+
+    @Override
+    long getLogLineCount() {
+        return Files.lines(logFile.toPath()).withCloseable { lines -> lines.count() }
     }
 
     void becomesIdle() {

@@ -34,8 +34,10 @@ fun fileHeaderFor(packageName: String) =
     "extension_shadowed_by_member",
     "redundant_projection",
     "RemoveRedundantBackticks",
-    "ObjectPropertyName"
+    "ObjectPropertyName",
+    "deprecation"
 )
+@file:org.gradle.api.Generated
 
 /* ktlint-disable */
 

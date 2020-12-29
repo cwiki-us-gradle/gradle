@@ -24,7 +24,6 @@ import org.gradle.api.logging.Logging;
 import org.gradle.api.tasks.WorkResult;
 import org.gradle.api.tasks.WorkResults;
 import org.gradle.cache.internal.MapBackedCache;
-import org.gradle.internal.Factory;
 import org.gradle.internal.jvm.Jvm;
 import org.gradle.internal.time.Time;
 import org.gradle.internal.time.Timer;
@@ -48,6 +47,7 @@ import xsbti.compile.AnalysisContents;
 import xsbti.compile.AnalysisStore;
 import xsbti.compile.Changes;
 import xsbti.compile.ClassFileManager;
+import xsbti.compile.ClassFileManagerType;
 import xsbti.compile.ClasspathOptionsUtil;
 import xsbti.compile.CompileAnalysis;
 import xsbti.compile.CompileOptions;
@@ -63,9 +63,9 @@ import xsbti.compile.PerClasspathEntryLookup;
 import xsbti.compile.PreviousResult;
 import xsbti.compile.ScalaCompiler;
 import xsbti.compile.Setup;
+import xsbti.compile.TransactionalManagerType;
 import xsbti.compile.analysis.Stamp;
 
-import javax.annotation.Nullable;
 import javax.inject.Inject;
 import java.io.File;
 import java.util.Arrays;
@@ -81,14 +81,16 @@ public class ZincScalaCompiler implements Compiler<ScalaJavaJointCompileSpec> {
     private final ScalaInstance scalaInstance;
     private final ScalaCompiler scalaCompiler;
     private final AnalysisStoreProvider analysisStoreProvider;
+    private final boolean leakCompilerClasspath;
 
     private final ClearableMapBackedCache<File, DefinesClass> definesClassCache = new ClearableMapBackedCache<>(new ConcurrentHashMap<>());
 
     @Inject
-    public ZincScalaCompiler(ScalaInstance scalaInstance, ScalaCompiler scalaCompiler, AnalysisStoreProvider analysisStoreProvider) {
+    public ZincScalaCompiler(ScalaInstance scalaInstance, ScalaCompiler scalaCompiler, AnalysisStoreProvider analysisStoreProvider, boolean leakCompilerClasspath) {
         this.scalaInstance = scalaInstance;
         this.scalaCompiler = scalaCompiler;
         this.analysisStoreProvider = analysisStoreProvider;
+        this.leakCompilerClasspath = leakCompilerClasspath;
     }
 
     public WorkResult execute(final ScalaJavaJointCompileSpec spec) {
@@ -104,23 +106,40 @@ public class ZincScalaCompiler implements Compiler<ScalaJavaJointCompileSpec> {
         List<String> scalacOptions = new ZincScalaCompilerArgumentsGenerator().generate(spec);
         List<String> javacOptions = new JavaCompilerArgumentsBuilder(spec).includeClasspath(false).noEmptySourcePath().build();
 
+        File[] classpath;
+        if (leakCompilerClasspath) {
+            classpath = Iterables.toArray(Iterables.concat(Arrays.asList(scalaInstance.allJars()), spec.getCompileClasspath()), File.class);
+        } else {
+            classpath = Iterables.toArray(spec.getCompileClasspath(), File.class);
+        }
+
         CompileOptions compileOptions = CompileOptions.create()
                 .withSources(Iterables.toArray(spec.getSourceFiles(), File.class))
-                .withClasspath(Iterables.toArray(Iterables.concat(Arrays.asList(scalaInstance.allJars()), spec.getCompileClasspath()), File.class))
+                .withClasspath(classpath)
                 .withScalacOptions(scalacOptions.toArray(new String[0]))
                 .withClassesDirectory(spec.getDestinationDir())
                 .withJavacOptions(javacOptions.toArray(new String[0]));
 
         File analysisFile = spec.getAnalysisFile();
-        AnalysisStore analysisStore = analysisStoreProvider.get(analysisFile);
+        Optional<AnalysisStore> analysisStore;
+        Optional<ClassFileManagerType> classFileManagerType;
+        if (spec.getScalaCompileOptions().isForce()) {
+            analysisStore = Optional.empty();
+            classFileManagerType = IncOptions.defaultClassFileManagerType();
+        } else {
+            analysisStore = Optional.of(analysisStoreProvider.get(analysisFile));
+            classFileManagerType = Optional.of(TransactionalManagerType.of(spec.getClassfileBackupDir(), new SbtLoggerAdapter()));
+        }
 
-        PreviousResult previousResult = analysisStore.get()
-                .map(a -> PreviousResult.of(Optional.of(a.getAnalysis()), Optional.of(a.getMiniSetup())))
-                .orElse(PreviousResult.of(Optional.empty(), Optional.empty()));
+        PreviousResult previousResult;
+        previousResult = analysisStore.flatMap(store -> store.get()
+            .map(a -> PreviousResult.of(Optional.of(a.getAnalysis()), Optional.of(a.getMiniSetup()))))
+            .orElse(PreviousResult.of(Optional.empty(), Optional.empty()));
 
         IncOptions incOptions = IncOptions.of()
                 .withExternalHooks(new LookupOnlyExternalHooks(new ExternalBinariesLookup()))
                 .withRecompileOnMacroDef(Optional.of(false))
+                .withClassfileManagerType(classFileManagerType)
                 .withTransitiveStep(5);
 
         Setup setup = incremental.setup(new EntryLookup(spec),
@@ -140,13 +159,16 @@ public class ZincScalaCompiler implements Compiler<ScalaJavaJointCompileSpec> {
         if (spec.getScalaCompileOptions().isForce()) {
             // TODO This should use Deleter
             GFileUtils.deleteDirectory(spec.getDestinationDir());
+            GFileUtils.deleteQuietly(spec.getAnalysisFile());
         }
         LOGGER.info("Prepared Zinc Scala inputs: {}", timer.getElapsed());
 
         try {
             CompileResult compile = incremental.compile(inputs, new SbtLoggerAdapter());
-            AnalysisContents contentNext = AnalysisContents.create(compile.analysis(), compile.setup());
-            analysisStore.set(contentNext);
+            if (analysisStore.isPresent()) {
+                AnalysisContents contentNext = AnalysisContents.create(compile.analysis(), compile.setup());
+                analysisStore.get().set(contentNext);
+            }
         } catch (xsbti.CompileFailed e) {
             throw new CompilationFailedException(e);
         }
@@ -170,21 +192,15 @@ public class ZincScalaCompiler implements Compiler<ScalaJavaJointCompileSpec> {
 
         @Override
         public Optional<CompileAnalysis> analysis(File classpathEntry) {
-            return Optional.ofNullable(analysisMap.get(classpathEntry)).flatMap(f -> analysisStoreProvider.get(f).get().map(a -> a.getAnalysis()));
+            return Optional.ofNullable(analysisMap.get(classpathEntry)).flatMap(f -> analysisStoreProvider.get(f).get().map(AnalysisContents::getAnalysis));
         }
 
         @Override
         public DefinesClass definesClass(File classpathEntry) {
-            Optional<DefinesClass> dc = analysis(classpathEntry).map(a -> a instanceof Analysis ? (Analysis) a : null).map(a -> new AnalysisBakedDefineClass(a));
-            return dc.orElseGet(() -> {
-                return definesClassCache.get(classpathEntry, new Factory<DefinesClass>() {
-                    @Nullable
-                    @Override
-                    public DefinesClass create() {
-                        return Locate.definesClass(classpathEntry);
-                    }
-                });
-            });
+            return analysis(classpathEntry)
+                .map(a -> a instanceof Analysis ? (Analysis) a : null)
+                .<DefinesClass>map(AnalysisBakedDefineClass::new)
+                .orElseGet(() -> definesClassCache.get(classpathEntry, Locate::definesClass));
         }
     }
 
@@ -203,7 +219,7 @@ public class ZincScalaCompiler implements Compiler<ScalaJavaJointCompileSpec> {
 
         @Override
         public Option<Set<File>> changedBinaries(CompileAnalysis previousAnalysis) {
-            java.util.List<File> result = new java.util.ArrayList<File>();
+            java.util.List<File> result = new java.util.ArrayList<>();
 
             for (Map.Entry<File, Stamp> e : previousAnalysis.readStamps().getAllBinaryStamps().entrySet()) {
                 if (!e.getKey().exists() || !e.getValue().equals(Stamper.forLastModified().apply(e.getKey()))) {
@@ -213,16 +229,16 @@ public class ZincScalaCompiler implements Compiler<ScalaJavaJointCompileSpec> {
             //return new Some<Set<File>>(new HashSet<>());
             //return Option.empty();
             if (result.isEmpty()) {
-                return new Some<Set<File>>(new HashSet<>());
+                return new Some<>(new HashSet<>());
             } else {
-                return new Some<Set<File>>(JavaConverters.asScalaBuffer(result).<File>toSet());
+                return new Some<>(JavaConverters.asScalaBuffer(result).toSet());
             }
         }
 
 
         @Override
         public Option<Set<File>> removedProducts(CompileAnalysis previousAnalysis) {
-            return new Some<Set<File>>(new HashSet<>()); //return none();
+            return new Some<>(new HashSet<>()); //return none();
         }
 
         @Override

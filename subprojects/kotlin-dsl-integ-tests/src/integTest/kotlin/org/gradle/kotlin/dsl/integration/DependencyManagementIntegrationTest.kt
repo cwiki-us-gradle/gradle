@@ -16,21 +16,21 @@
 
 package org.gradle.kotlin.dsl.integration
 
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.kotlin.dsl.fixtures.AbstractKotlinIntegrationTest
 import org.gradle.kotlin.dsl.fixtures.containsMultiLineString
 import org.gradle.kotlin.dsl.fixtures.normalisedPath
 
 import org.hamcrest.CoreMatchers.containsString
 
-import org.junit.Assert.assertThat
+import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Test
 
 
 class DependencyManagementIntegrationTest : AbstractKotlinIntegrationTest() {
 
     @Test
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     fun `declare dependency constraints`() {
 
         withFile("repo/in-block/accessor-1.0.jar")
@@ -42,7 +42,8 @@ class DependencyManagementIntegrationTest : AbstractKotlinIntegrationTest() {
         withFile("repo/direct-block/string-invoke-1.0.jar")
         withFile("repo/direct-block/string-invoke-with-action-1.0.jar")
 
-        withBuildScript("""
+        withBuildScript(
+            """
             plugins {
                 `java-library`
             }
@@ -95,10 +96,14 @@ class DependencyManagementIntegrationTest : AbstractKotlinIntegrationTest() {
                     }
                 }
             }
-        """)
+            """
+        )
 
         build("dependencies", "--configuration", "api").apply {
-            assertThat(output, containsMultiLineString("""
+            assertThat(
+                output,
+                containsMultiLineString(
+                    """
                 api - API dependencies for source set 'main'. (n)
                 +--- in-block:accessor (n)
                 +--- in-block:accessor-with-action (n)
@@ -108,7 +113,9 @@ class DependencyManagementIntegrationTest : AbstractKotlinIntegrationTest() {
                 +--- direct:accessor-with-action (n)
                 +--- direct-block:string-invoke (n)
                 \--- direct-block:string-invoke-with-action (n)
-            """))
+                """
+                )
+            )
         }
 
         listOf(

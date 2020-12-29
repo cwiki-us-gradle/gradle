@@ -18,7 +18,7 @@ package org.gradle.integtests.resolve.locking
 
 import org.gradle.integtests.fixtures.AbstractDependencyResolutionTest
 import org.gradle.integtests.fixtures.FeaturePreviewsFixture
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.test.fixtures.plugin.PluginBuilder
 import org.gradle.test.fixtures.server.http.MavenHttpPluginRepository
 import org.junit.Rule
@@ -32,7 +32,7 @@ class UsingLockingOnNonProjectConfigurationsIntegrationTest extends AbstractDepe
     @Rule
     MavenHttpPluginRepository pluginRepo = MavenHttpPluginRepository.asGradlePluginPortal(executer, mavenRepo)
 
-    @ToBeFixedForInstantExecution(because = ":buildEnvironment")
+    @ToBeFixedForConfigurationCache(because = ":buildEnvironment")
     @Unroll
     def 'locks build script classpath configuration (unique: #unique)'() {
         given:
@@ -73,7 +73,7 @@ buildscript {
         unique << [true, false]
     }
 
-    @ToBeFixedForInstantExecution(because = ":buildEnvironment")
+    @ToBeFixedForConfigurationCache(because = ":buildEnvironment")
     def 'locks build script classpath configuration in custom lockfile'() {
         given:
         mavenRepo.module('org.foo', 'foo-plugin', '1.0').publish()
@@ -216,7 +216,7 @@ buildscript {
         unique << [true, false]
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     @Unroll
     def 'locks build script classpath combined with plugins (unique: #unique)'() {
         given:
@@ -269,7 +269,7 @@ plugins {
         unique << [true, false]
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     @Unroll
     def 'creates lock file for build script classpath (unique: #unique)'() {
         given:
@@ -350,7 +350,7 @@ buildscript {
         unique << [true, false]
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     @Unroll
     def 'same name buildscript and project configurations result in different lock files (unique: #unique)'() {
         given:
@@ -403,6 +403,65 @@ dependencies {
         where:
         unique << [true, false]
     }
+
+    @ToBeFixedForConfigurationCache
+    @Unroll
+    def 'settings locking (unique: #unique)'() {
+        given:
+        mavenRepo.module('org.foo', 'foo-plugin', '1.0').publish()
+        mavenRepo.module('org.foo', 'foo-plugin', '1.1').publish()
+        mavenRepo.module('org.bar', 'bar', '1.0').publish()
+        mavenRepo.module('org.bar', 'bar', '1.1').publish()
+
+        settingsFile << """
+buildscript {
+    repositories {
+        maven {
+            url = '$mavenRepo.uri'
+        }
+    }
+
+    configurations.classpath {
+        resolutionStrategy.activateDependencyLocking()
+    }
+    dependencies {
+        classpath 'org.bar:bar:[1.0,2.0)'
+    }
+}
+
+rootProject.name = 'foo-bar-locking'
+"""
+        if (unique) {
+            FeaturePreviewsFixture.enableOneLockfilePerProject(settingsFile)
+        }
+        buildFile << """
+buildscript {
+    repositories {
+        maven {
+            url = '$mavenRepo.uri'
+        }
+    }
+    configurations.classpath {
+        resolutionStrategy.activateDependencyLocking()
+    }
+    dependencies {
+        classpath 'org.foo:foo-plugin:[1.0,2.0)'
+    }
+}
+"""
+
+        when:
+        succeeds 'buildEnvironment', '--write-locks'
+
+        then:
+        lockfileFixture.verifyNonUniqueSettingsLockfile('classpath', ['org.bar:bar:1.1'])
+        lockfileFixture.verifyBuildscriptLockfile('classpath', ['org.foo:foo-plugin:1.1'], unique)
+
+        where:
+        unique << [true, false]
+    }
+
+
 
     def addPlugin() {
         pluginBuilder.addPlugin("System.out.println(\"Hello World\");", 'bar.plugin')

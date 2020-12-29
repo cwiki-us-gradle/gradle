@@ -21,7 +21,8 @@ import org.gradle.api.file.RegularFileProperty
 import org.gradle.initialization.StartParameterBuildOptions.BuildCacheDebugLoggingOption
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.DirectoryBuildCacheFixture
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
+import org.gradle.integtests.fixtures.UnsupportedWithConfigurationCache
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.util.ToBeImplemented
 import spock.lang.Issue
@@ -40,7 +41,11 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
             class NestedBeanWithInput {
                 @Input${kind}
                 @PathSensitive(PathSensitivity.NONE)
-                ${type.name} input
+                final ${type.name} input
+
+                NestedBeanWithInput(${type.name} input) {
+                    this.input = input
+                }
             }
 
             class GeneratorTask extends DefaultTask {
@@ -58,7 +63,7 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
             }
 
             task consumer(type: TaskWithNestedProperty) {
-                bean = new NestedBeanWithInput(input: project.objects.${factory}())
+                bean = new NestedBeanWithInput(project.objects.${factory}())
                 bean.input.set(generator.output)
             }
         """
@@ -121,7 +126,11 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
 
             class NestedBeanWithInput {
                 @InputFile
-                RegularFileProperty file
+                final RegularFileProperty file
+
+                NestedBeanWithInput(RegularFileProperty file) {
+                    this.file = file
+                }
             }
 
             class GeneratorTask extends DefaultTask {
@@ -139,7 +148,7 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
             }
 
             task consumer(type: TaskWithNestedProperty) {
-                bean = new NestedBeanWithInput(file: generator.outputFile)
+                bean = new NestedBeanWithInput(generator.outputFile)
             }
         """
 
@@ -151,7 +160,7 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution
+    @UnsupportedWithConfigurationCache(because = "task references another task")
     def "re-configuring #change in nested bean during execution time is detected"() {
         def fixture = new NestedBeanTestFixture()
 
@@ -190,7 +199,7 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution
+    @UnsupportedWithConfigurationCache(because = "task references another task")
     def "re-configuring a nested bean from #from to #to during execution time is detected"() {
         def fixture = new NestedBeanTestFixture()
 
@@ -231,7 +240,6 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution(iterationMatchers = ".*inputProperty.*")
     def "re-configuring #change in nested bean after the task started executing has no effect"() {
         def fixture = new NestedBeanTestFixture()
         fixture.prepareInputFiles()
@@ -264,7 +272,6 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution(iterationMatchers = ".*from firstBean to null.*")
     def "re-configuring a nested bean from #from to #to after the task started executing has no effect"() {
         def fixture = new NestedBeanTestFixture()
         fixture.prepareInputFiles()
@@ -405,10 +412,10 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
                 }
             }
 
-            def firstString = project.findProperty('firstInput')
+            def firstString = providers.gradleProperty('firstInput').forUseAtConfigurationTime().orNull
             def firstBean = new NestedBean(firstInput: firstString, firstOutputFile: file("${firstOutputFile}"), firstInputFile: file("${firstInputFile}"))
 
-            def secondString = project.findProperty('secondInput')
+            def secondString = providers.gradleProperty('secondInput').forUseAtConfigurationTime().orNull
             def secondBean = new OtherNestedBean(secondInput: secondString, secondOutputFile: file("${secondOutputFile}"), secondInputFile: file("${secondInputFile}"))
 
             task taskWithNestedProperty(type: TaskWithNestedProperty) {
@@ -507,7 +514,6 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
         succeeds "myTask"
     }
 
-    @ToBeFixedForInstantExecution
     def "changes to nested bean implementation are detected"() {
         buildFile << """
             class TaskWithNestedInput extends DefaultTask {
@@ -533,7 +539,7 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
                 input
             }
 
-            boolean useOther = project.findProperty('useOther')
+            boolean useOther = providers.gradleProperty('useOther').forUseAtConfigurationTime().present
 
             task myTask(type: TaskWithNestedInput) {
                 outputFile = file('build/output.txt')
@@ -582,7 +588,6 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
         failure.assertHasCause('Null is not allowed as nested property \'beans.$1\'')
     }
 
-    @ToBeFixedForInstantExecution
     def "nested iterable beans can be iterables themselves"() {
         buildFile << nestedBeanWithStringInput()
         buildFile << """
@@ -599,7 +604,7 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
                 }
             }
 
-            def inputString = project.findProperty('input') ?: 'input'
+            def inputString = providers.gradleProperty('input').forUseAtConfigurationTime().getOrElse('input')
 
             task myTask(type: TaskWithNestedIterable) {
                 outputFile = file('build/output.txt')
@@ -671,12 +676,11 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
         succeeds "myTask"
     }
 
-    @ToBeFixedForInstantExecution
     def "nested Provider is unpacked"() {
         buildFile << taskWithNestedInput()
         buildFile << nestedBeanWithStringInput()
         buildFile << """
-            myTask.nested = provider { new NestedBean(project.property('input')) }
+            myTask.nested = provider { new NestedBean(providers.gradleProperty('input').forUseAtConfigurationTime().get()) }
         """
 
         def myTask = ':myTask'
@@ -697,12 +701,11 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
         output.contains "Value of input property 'nested.input' has changed for task ':myTask'"
     }
 
-    @ToBeFixedForInstantExecution
     def "input changes for task with named nested beans"() {
         buildFile << taskWithNestedInput()
         buildFile << namedBeanClass()
         buildFile << """
-            myTask.nested = [new NamedBean(project.property('namedName'), 'value1'), new NamedBean('name', 'value2')]
+            myTask.nested = [new NamedBean(providers.gradleProperty('namedName').forUseAtConfigurationTime().get(), 'value1'), new NamedBean('name', 'value2')]
         """
         def taskPath = ':myTask'
 
@@ -724,12 +727,11 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
         output.contains("Input property 'nested.name1\$0' has been removed for task ':myTask'")
     }
 
-    @ToBeFixedForInstantExecution
     def "input changes for task with nested map"() {
         buildFile << taskWithNestedInput()
         buildFile << nestedBeanWithStringInput()
         buildFile << """
-            myTask.nested = [(project.property('key')): new NestedBean('value1'), key2: new NestedBean('value2')]
+            myTask.nested = [(providers.gradleProperty('key').forUseAtConfigurationTime().get()): new NestedBean('value1'), key2: new NestedBean('value2')]
         """
         def taskPath = ':myTask'
 
@@ -777,7 +779,7 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
             "  Non-cacheable inputs: property 'bean' was loaded with an unknown classloader (class 'NestedBean')."
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache(because = "uses custom GroovyClassLoader")
     def "task with nested bean loaded with custom classloader is never up-to-date"() {
         file("input.txt").text = "data"
         buildFile << taskWithNestedBeanFromCustomClassLoader()
@@ -794,7 +796,6 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
         output.contains "Implementation of input property 'bean' has changed for task ':customTask'"
     }
 
-    @ToBeFixedForInstantExecution
     def "changes to nested domain object container are tracked"() {
         buildFile << taskWithNestedInput()
         buildFile << """
@@ -813,7 +814,7 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
             def domainObjectCollection = objects.domainObjectContainer(Bean)
             myTask.nested = domainObjectCollection
 
-            domainObjectCollection.create('first') { prop = project.property('value') }
+            domainObjectCollection.create('first') { prop = providers.gradleProperty('value').forUseAtConfigurationTime().get() }
             domainObjectCollection.create('second') { prop = '2' }
         """
 
@@ -898,7 +899,6 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
         """
     }
 
-    @ToBeFixedForInstantExecution
     def "implementation of nested closure in decorated bean is tracked"() {
         taskWithNestedBeanWithAction()
         buildFile << """
@@ -932,7 +932,6 @@ class NestedInputIntegrationTest extends AbstractIntegrationSpec implements Dire
         output.contains "Implementation of input property 'bean.action' has changed for task ':myTask'"
     }
 
-    @ToBeFixedForInstantExecution
     @ToBeImplemented("https://github.com/gradle/gradle/issues/11703")
     def "nested bean from closure can be used with the build cache"() {
         def project1 = file("project1").createDir()

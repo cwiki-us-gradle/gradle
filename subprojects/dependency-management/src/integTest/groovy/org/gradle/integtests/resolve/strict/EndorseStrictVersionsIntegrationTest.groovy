@@ -17,7 +17,7 @@ package org.gradle.integtests.resolve.strict
 
 import org.gradle.integtests.fixtures.GradleMetadataResolveRunner
 import org.gradle.integtests.fixtures.RequiredFeature
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.integtests.resolve.AbstractModuleDependencyResolveTest
 
 @RequiredFeature(feature = GradleMetadataResolveRunner.GRADLE_METADATA, value = "true")
@@ -144,6 +144,7 @@ class EndorseStrictVersionsIntegrationTest extends AbstractModuleDependencyResol
         }
     }
 
+    @ToBeFixedForConfigurationCache
     def "multiple endorsed strict versions that target the same module fail the build if they conflict"() {
         given:
         repository {
@@ -189,11 +190,11 @@ class EndorseStrictVersionsIntegrationTest extends AbstractModuleDependencyResol
         then:
         failure.assertHasCause """Cannot find a version of 'org:foo' that satisfies the version constraints:
    Dependency path ':test:unspecified' --> 'org:foo'
-   Constraint path ':test:unspecified' --> 'org:platform-a:1.0' --> 'org:foo:{strictly 1.0}'
-   Constraint path ':test:unspecified' --> 'org:platform-b:1.0' --> 'org:foo:{strictly 2.0}'"""
+   Constraint path ':test:unspecified' --> 'org:platform-a:1.0' (runtime) --> 'org:foo:{strictly 1.0}'
+   Constraint path ':test:unspecified' --> 'org:platform-b:1.0' (runtime) --> 'org:foo:{strictly 2.0}'"""
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "a module from which strict versions are endorsed can itself be influenced by strict versions endorsed form elsewhere"() {
         given:
         repository {

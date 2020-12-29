@@ -16,8 +16,8 @@
 
 package org.gradle.api.internal.tasks.execution
 
+import org.gradle.api.DefaultTask
 import org.gradle.api.execution.TaskExecutionListener
-import org.gradle.api.internal.AbstractTask
 import org.gradle.api.internal.TaskInternal
 import org.gradle.api.internal.project.taskfactory.TaskIdentity
 import org.gradle.api.internal.tasks.TaskExecuter
@@ -38,7 +38,7 @@ class EventFiringTaskExecuterTest extends Specification {
     def taskListener = Mock(TaskListenerInternal)
     def delegate = Mock(TaskExecuter)
     def task = Mock(TaskInternal)
-    def taskIdentity = new TaskIdentity(AbstractTask, "foo", null, null, null, 0)
+    def taskIdentity = new TaskIdentity(DefaultTask, "foo", null, null, null, 0)
     def state = new TaskStateInternal()
     def executionContext = Mock(TaskExecutionContext)
 
@@ -69,7 +69,7 @@ class EventFiringTaskExecuterTest extends Specification {
         buildOperationExecutor.operations[0].name == ":a"
         buildOperationExecutor.operations[0].displayName == "Task :a"
         buildOperationExecutor.operations[0].progressDisplayName == ":a"
-        buildOperationExecutor.operations[0].operationType == BuildOperationCategory.TASK
+        buildOperationExecutor.operations[0].metadata == BuildOperationCategory.TASK
     }
 
     def "does not run task action when beforeExecute event fails"() {

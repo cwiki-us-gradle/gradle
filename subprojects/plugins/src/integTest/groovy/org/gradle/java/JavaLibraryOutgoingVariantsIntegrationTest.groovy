@@ -18,7 +18,6 @@ package org.gradle.java
 
 import org.gradle.api.JavaVersion
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import spock.lang.Unroll
 
 class JavaLibraryOutgoingVariantsIntegrationTest extends AbstractIntegrationSpec {
@@ -27,6 +26,7 @@ class JavaLibraryOutgoingVariantsIntegrationTest extends AbstractIntegrationSpec
         repo.module("test", "api", "1.0").publish()
         repo.module("test", "compile", "1.0").publish()
         repo.module("test", "compile-only", "1.0").publish()
+        repo.module("test", "compile-only-api", "1.0").publish()
         repo.module("test", "runtime", "1.0").publish()
         repo.module("test", "implementation", "1.0").publish()
         repo.module("test", "runtime-only", "1.0").publish()
@@ -47,11 +47,12 @@ project(':java') {
     apply plugin: 'java-library'
     dependencies {
         api 'test:api:1.0'
-        compile 'test:compile:1.0'
-        compile project(':other-java')
-        compile files('file-dep.jar')
+        implementation 'test:compile:1.0'
+        implementation project(':other-java')
+        implementation files('file-dep.jar')
         compileOnly 'test:compile-only:1.0'
-        runtime 'test:runtime:1.0'
+        compileOnlyApi 'test:compile-only-api:1.0'
+        runtimeOnly 'test:runtime:1.0'
         implementation 'test:implementation:1.0'
         runtimeOnly 'test:runtime-only:1.0'
     }
@@ -74,12 +75,9 @@ project(':consumer') {
     }
 
     private resolve() {
-        // this test uses all configurations including the deprecated 'compile' and 'runtime'
-        executer.expectDeprecationWarnings(2)
         succeeds "resolve"
     }
 
-    @ToBeFixedForInstantExecution
     def "provides runtime JAR as default variant"() {
         when:
         resolve()
@@ -111,7 +109,6 @@ project(':consumer') {
         outputContains("java.jar (project :java) {artifactType=jar, org.gradle.category=library, org.gradle.dependency.bundling=external, ${defaultTargetPlatform()}, org.gradle.libraryelements=jar, org.gradle.usage=java-runtime}")
     }
 
-    @ToBeFixedForInstantExecution
     def "provides API variant"() {
         buildFile << """
             project(':consumer') {
@@ -126,11 +123,10 @@ project(':consumer') {
 
         then:
         result.assertTasksExecuted(":other-java:compileJava", ":java:compileJava", ":consumer:resolve")
-        outputContains("files: [main, file-dep.jar, api-1.0.jar, compile-1.0.jar, main, runtime-1.0.jar]")
-        outputContains("file-dep.jar {artifactType=jar}")
-        outputContains("compile-1.0.jar (test:compile:1.0) {artifactType=jar, org.gradle.status=release}")
-        outputContains("main (project :other-java) {artifactType=java-classes-directory, org.gradle.category=library, org.gradle.dependency.bundling=external, ${defaultTargetPlatform()}, org.gradle.libraryelements=classes, org.gradle.usage=java-api}")
+        outputContains("files: [main, api-1.0.jar, compile-only-api-1.0.jar]")
         outputContains("main (project :java) {artifactType=java-classes-directory, org.gradle.category=library, org.gradle.dependency.bundling=external, ${defaultTargetPlatform()}, org.gradle.libraryelements=classes, org.gradle.usage=java-api}")
+        outputContains("api-1.0.jar (test:api:1.0) {artifactType=jar, org.gradle.status=release}")
+        outputContains("compile-only-api-1.0.jar (test:compile-only-api:1.0) {artifactType=jar, org.gradle.status=release}")
 
         when:
         buildFile << """
@@ -144,15 +140,13 @@ project(':consumer') {
 
         then:
         result.assertTasksExecuted(":other-java:compileJava", ":java:compileJava", ":consumer:resolve")
-        outputContains("files: [main, file-dep.jar, api-1.0.jar, compile-1.0.jar, main, runtime-1.0.jar]")
-        outputContains("file-dep.jar {artifactType=jar, org.gradle.libraryelements=jar, org.gradle.usage=java-runtime}")
-        outputContains("compile-1.0.jar (test:compile:1.0) {artifactType=jar, org.gradle.category=library, org.gradle.libraryelements=jar, org.gradle.status=release, org.gradle.usage=java-api}")
-        outputContains("main (project :other-java) {artifactType=java-classes-directory, org.gradle.category=library, org.gradle.dependency.bundling=external, ${defaultTargetPlatform()}, org.gradle.libraryelements=classes, org.gradle.usage=java-api}")
+        outputContains("files: [main, api-1.0.jar, compile-only-api-1.0.jar]")
         outputContains("main (project :java) {artifactType=java-classes-directory, org.gradle.category=library, org.gradle.dependency.bundling=external, ${defaultTargetPlatform()}, org.gradle.libraryelements=classes, org.gradle.usage=java-api}")
+        outputContains("api-1.0.jar (test:api:1.0) {artifactType=jar, org.gradle.category=library, org.gradle.libraryelements=jar, org.gradle.status=release, org.gradle.usage=java-api}")
+        outputContains("compile-only-api-1.0.jar (test:compile-only-api:1.0) {artifactType=jar, org.gradle.category=library, org.gradle.libraryelements=jar, org.gradle.status=release, org.gradle.usage=java-api}")
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution
     def "provides runtime variant - format: #format"() {
         buildFile << """
             project(':consumer') {
@@ -217,7 +211,6 @@ project(':consumer') {
         outputContains("other-java.jar (project :other-java) {artifactType=jar, org.gradle.category=library, org.gradle.dependency.bundling=external, ${defaultTargetPlatform()}, org.gradle.libraryelements=jar, org.gradle.usage=java-runtime}")
     }
 
-    @ToBeFixedForInstantExecution
     def "provides runtime classes variant"() {
         buildFile << """
             project(':consumer') {
@@ -258,7 +251,6 @@ project(':consumer') {
         outputContains("main (project :java) {artifactType=java-classes-directory, org.gradle.category=library, org.gradle.dependency.bundling=external, ${defaultTargetPlatform()}, org.gradle.libraryelements=classes, org.gradle.usage=java-runtime}")
     }
 
-    @ToBeFixedForInstantExecution
     def "provides runtime resources variant"() {
         buildFile << """
             project(':consumer') {

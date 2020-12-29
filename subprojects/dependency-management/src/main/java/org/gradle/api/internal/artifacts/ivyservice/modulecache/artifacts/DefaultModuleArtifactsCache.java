@@ -60,7 +60,7 @@ public class DefaultModuleArtifactsCache extends AbstractArtifactsCache {
 
     @Override
     protected ModuleArtifactsCacheEntry get(ArtifactsAtRepositoryKey key) {
-        return getCache().get(key);
+        return getCache().getIfPresent(key);
     }
 
     private static class ModuleArtifactsKeySerializer extends AbstractSerializer<ArtifactsAtRepositoryKey> {
@@ -99,7 +99,7 @@ public class DefaultModuleArtifactsCache extends AbstractArtifactsCache {
 
     private static class ModuleArtifactsCacheEntrySerializer extends AbstractSerializer<ModuleArtifactsCacheEntry> {
         private final Serializer<Set<ComponentArtifactMetadata>> artifactsSerializer =
-                new SetSerializer<ComponentArtifactMetadata>(new ComponentArtifactMetadataSerializer());
+            new SetSerializer<>(new ComponentArtifactMetadataSerializer());
         @Override
         public void write(Encoder encoder, ModuleArtifactsCacheEntry value) throws Exception {
             encoder.writeLong(value.createTimestamp);

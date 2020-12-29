@@ -49,7 +49,9 @@ import org.gradle.internal.HasInternalProtocol;
  * An example showing how to refer to a given configuration by name
  * in order to get hold of all dependencies (e.g. jars, but only)
  * <pre class='autoTested'>
- *   apply plugin: 'java' //so that I can use 'implementation', 'compileClasspath' configuration
+ *   plugins {
+ *       id 'java' //so that I can use 'implementation', 'compileClasspath' configuration
+ *   }
  *
  *   dependencies {
  *       implementation 'org.slf4j:slf4j-api:1.7.26'
@@ -65,7 +67,9 @@ import org.gradle.internal.HasInternalProtocol;
  *
  * An example showing how to declare and configure configurations
  * <pre class='autoTested'>
- * apply plugin: 'java' //so that I can use 'implementation', 'testImplementation' configurations
+ * plugins {
+ *     id 'java' // so that I can use 'implementation', 'testImplementation' configurations
+ * }
  *
  * configurations {
  *   //adding a configuration:
@@ -84,7 +88,7 @@ import org.gradle.internal.HasInternalProtocol;
  *
  * Examples on configuring the <b>resolution strategy</b> - see docs for {@link ResolutionStrategy}
  *
- * Please see the <a href="https://docs.gradle.org/current/userguide/managing_dependency_configurations.html" target="_top">Managing Dependency Configurations</a> User Manual chapter for more information.
+ * Please see the <a href="https://docs.gradle.org/current/userguide/declaring_dependencies.html#sec:what-are-dependency-configurations" target="_top">Managing Dependency Configurations</a> User Manual chapter for more information.
  */
 @HasInternalProtocol
 public interface ConfigurationContainer extends NamedDomainObjectContainer<Configuration> {

@@ -18,7 +18,7 @@ package org.gradle.integtests.resolve.transform
 
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.integtests.fixtures.AbstractDependencyResolutionTest
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import spock.lang.Unroll
 
 class ArtifactTransformWithFileInputsIntegrationTest extends AbstractDependencyResolutionTest implements ArtifactTransformTestFixture {
@@ -265,7 +265,6 @@ class ArtifactTransformWithFileInputsIntegrationTest extends AbstractDependencyR
         outputContains("result = [b.jar.green, c.jar.green]")
     }
 
-    @ToBeFixedForInstantExecution
     def "transform can receive a file collection containing substituted external dependencies as parameter"() {
         file("tools/settings.gradle") << """
             include 'tool-a', 'tool-b'
@@ -461,7 +460,6 @@ class ArtifactTransformWithFileInputsIntegrationTest extends AbstractDependencyR
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution
     def "can use input path sensitivity #pathSensitivity for parameter object"() {
         settingsFile << """
                 include 'a', 'b', 'c'
@@ -469,7 +467,7 @@ class ArtifactTransformWithFileInputsIntegrationTest extends AbstractDependencyR
         setupBuildWithTransformFileInputs("@PathSensitive(PathSensitivity.$pathSensitivity) @InputFiles")
         buildFile << """
             allprojects {
-                ext.inputFiles = files(rootProject.file(project.property('fileName')))
+                ext.inputFiles = rootProject.files(providers.gradleProperty('fileName'))
             }
 
             project(':a') {
@@ -516,7 +514,7 @@ class ArtifactTransformWithFileInputsIntegrationTest extends AbstractDependencyR
         PathSensitivity.ABSOLUTE  | [['first/input', 'foo'], ['first/input', 'foo'], ['third/input', 'foo']]
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache(because = "classpath normalization configuration is not serialized")
     def "can use classpath normalization for parameter object"() {
         settingsFile << """
                 include 'a', 'b', 'c'

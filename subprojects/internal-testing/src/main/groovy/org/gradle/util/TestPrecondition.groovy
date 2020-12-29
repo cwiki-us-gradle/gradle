@@ -85,9 +85,6 @@ enum TestPrecondition implements org.gradle.internal.Factory<Boolean> {
     JDK7_OR_EARLIER({
         JavaVersion.current() <= JavaVersion.VERSION_1_7
     }),
-    JDK9_OR_LATER({
-        JavaVersion.current() >= JavaVersion.VERSION_1_9
-    }),
     JDK8({
         JavaVersion.current() == JavaVersion.VERSION_1_8
     }),
@@ -97,8 +94,20 @@ enum TestPrecondition implements org.gradle.internal.Factory<Boolean> {
     JDK9_OR_EARLIER({
         JavaVersion.current() <= JavaVersion.VERSION_1_9
     }),
+    JDK9_OR_LATER({
+        JavaVersion.current() >= JavaVersion.VERSION_1_9
+    }),
+    JDK10_OR_LATER({
+        JavaVersion.current() >= JavaVersion.VERSION_1_10
+    }),
+    JDK10_OR_EARLIER({
+        JavaVersion.current() <= JavaVersion.VERSION_1_10
+    }),
     JDK11_OR_EARLIER({
         JavaVersion.current() <= JavaVersion.VERSION_11
+    }),
+    JDK11_OR_LATER({
+        JavaVersion.current() >= JavaVersion.VERSION_11
     }),
     JDK12_OR_EARLIER({
         JavaVersion.current() <= JavaVersion.VERSION_12
@@ -109,8 +118,14 @@ enum TestPrecondition implements org.gradle.internal.Factory<Boolean> {
     JDK13_OR_EARLIER({
         JavaVersion.current() <= JavaVersion.VERSION_13
     }),
-    FIX_TO_WORK_ON_JAVA9({
-        JDK8_OR_EARLIER.fulfilled
+    JDK13_OR_LATER({
+        JavaVersion.current() >= JavaVersion.VERSION_13
+    }),
+    JDK14_OR_EARLIER({
+        JavaVersion.current() <= JavaVersion.VERSION_14
+    }),
+    JDK14_OR_LATER({
+        JavaVersion.current() >= JavaVersion.VERSION_14
     }),
     JDK_ORACLE({
         System.getProperty('java.vm.vendor') == 'Oracle Corporation'
@@ -150,7 +165,7 @@ enum TestPrecondition implements org.gradle.internal.Factory<Boolean> {
     }),
     MSBUILD({
         // Simplistic approach at detecting MSBuild by assuming Windows imply MSBuild is present
-        WINDOWS.fulfilled
+        WINDOWS.fulfilled && "embedded" != System.getProperty("org.gradle.integtest.executer")
     }),
     SUPPORTS_TARGETING_JAVA6({ !JDK12_OR_LATER.fulfilled }),
     // Currently mac agents are not that strong so we avoid running high-concurrency tests on them

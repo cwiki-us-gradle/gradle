@@ -19,6 +19,7 @@ package org.gradle.internal.cleanup;
 import com.google.common.collect.Sets;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.internal.file.FileCollectionFactory;
+import org.gradle.internal.execution.BuildOutputCleanupRegistry;
 
 import java.io.File;
 import java.util.LinkedHashSet;
@@ -53,6 +54,11 @@ public class DefaultBuildOutputCleanupRegistry implements BuildOutputCleanupRegi
             absoluteFile = absoluteFile.getParentFile();
         }
         return false;
+    }
+
+    @Override
+    public Set<FileCollection> getRegisteredOutputs() {
+        return outputs;
     }
 
     private Set<String> getResolvedPaths() {

@@ -27,8 +27,7 @@ import org.gradle.concurrent.ParallelismConfiguration;
 import org.gradle.internal.Factories;
 import org.gradle.internal.Factory;
 import org.gradle.internal.MutableBoolean;
-import org.gradle.internal.concurrent.ParallelismConfigurationListener;
-import org.gradle.internal.concurrent.ParallelismConfigurationManager;
+import org.gradle.internal.concurrent.Stoppable;
 import org.gradle.internal.resources.AbstractResourceLockRegistry;
 import org.gradle.internal.resources.AbstractTrackedResourceLock;
 import org.gradle.internal.resources.DefaultResourceLockCoordinationService;
@@ -55,34 +54,25 @@ import static org.gradle.internal.resources.DefaultResourceLockCoordinationServi
 import static org.gradle.internal.resources.DefaultResourceLockCoordinationService.unlock;
 import static org.gradle.internal.resources.ResourceLockState.Disposition.FINISHED;
 
-public class DefaultWorkerLeaseService implements WorkerLeaseService, ParallelismConfigurationListener {
+public class DefaultWorkerLeaseService implements WorkerLeaseService, Stoppable {
     public static final String PROJECT_LOCK_STATS_PROPERTY = "org.gradle.internal.project.lock.stats";
     private static final Logger LOGGER = LoggerFactory.getLogger(DefaultWorkerLeaseService.class);
 
-    private volatile int maxWorkerCount;
+    private final int maxWorkerCount;
     private int counter = 1;
     private final Root root = new Root();
 
     private final ResourceLockCoordinationService coordinationService;
     private final ProjectLockRegistry projectLockRegistry;
     private final WorkerLeaseLockRegistry workerLeaseLockRegistry;
-    private final ParallelismConfigurationManager parallelismConfigurationManager;
     private final ProjectLockStatisticsImpl projectLockStatistics = new ProjectLockStatisticsImpl();
 
-    public DefaultWorkerLeaseService(ResourceLockCoordinationService coordinationService, ParallelismConfigurationManager parallelismConfigurationManager) {
-        this.maxWorkerCount = parallelismConfigurationManager.getParallelismConfiguration().getMaxWorkerCount();
-        this.coordinationService = coordinationService;
-        this.projectLockRegistry = new ProjectLockRegistry(coordinationService, parallelismConfigurationManager.getParallelismConfiguration().isParallelProjectExecutionEnabled());
-        this.workerLeaseLockRegistry = new WorkerLeaseLockRegistry(coordinationService);
-        this.parallelismConfigurationManager = parallelismConfigurationManager;
-        parallelismConfigurationManager.addListener(this);
-        LOGGER.info("Using {} worker leases.", maxWorkerCount);
-    }
-
-    @Override
-    public void onParallelismConfigurationChange(ParallelismConfiguration parallelismConfiguration) {
+    public DefaultWorkerLeaseService(ResourceLockCoordinationService coordinationService, ParallelismConfiguration parallelismConfiguration) {
         this.maxWorkerCount = parallelismConfiguration.getMaxWorkerCount();
-        projectLockRegistry.setParallelEnabled(parallelismConfiguration.isParallelProjectExecutionEnabled());
+        this.coordinationService = coordinationService;
+        this.projectLockRegistry = new ProjectLockRegistry(coordinationService, parallelismConfiguration.isParallelProjectExecutionEnabled());
+        this.workerLeaseLockRegistry = new WorkerLeaseLockRegistry(coordinationService);
+        LOGGER.info("Using {} worker leases.", maxWorkerCount);
     }
 
     @Override
@@ -125,7 +115,6 @@ public class DefaultWorkerLeaseService implements WorkerLeaseService, Parallelis
 
     @Override
     public void stop() {
-        parallelismConfigurationManager.removeListener(this);
         coordinationService.withStateLock(new Transformer<ResourceLockState.Disposition, ResourceLockState>() {
             @Override
             public ResourceLockState.Disposition transform(ResourceLockState resourceLockState) {
@@ -145,6 +134,11 @@ public class DefaultWorkerLeaseService implements WorkerLeaseService, Parallelis
     }
 
     @Override
+    public boolean getAllowsParallelExecution() {
+        return projectLockRegistry.getAllowsParallelExecution();
+    }
+
+    @Override
     public ResourceLock getProjectLock(Path buildIdentityPath, Path projectIdentityPath) {
         return projectLockRegistry.getResourceLock(buildIdentityPath, projectIdentityPath);
     }
@@ -160,6 +154,10 @@ public class DefaultWorkerLeaseService implements WorkerLeaseService, Parallelis
         releaseLocks(projectLocks);
     }
 
+    public void releaseCurrentResourceLocks() {
+        releaseLocks(workerLeaseLockRegistry.getResourceLocksByCurrentThread());
+    }
+
     @Override
     public void withoutProjectLock(Runnable runnable) {
         withoutProjectLock(Factories.toFactory(runnable));
@@ -169,6 +167,32 @@ public class DefaultWorkerLeaseService implements WorkerLeaseService, Parallelis
     public <T> T withoutProjectLock(Factory<T> factory) {
         final Iterable<? extends ResourceLock> projectLocks = getCurrentProjectLocks();
         return withoutLocks(projectLocks, factory);
+    }
+
+    @Override
+    public void blocking(Runnable action) {
+        if (projectLockRegistry.mayAttemptToChangeLocks()) {
+            // Need to run the action without the project locks
+            withoutProjectLock(action);
+        } else {
+            // Can just run the action, as it is safe to retain the project locks or the current thread is allowed to do whatever it likes
+            action.run();
+        }
+    }
+
+    @Override
+    public <T> T whileDisallowingProjectLockChanges(Factory<T> action) {
+        return projectLockRegistry.whileDisallowingLockChanges(action);
+    }
+
+    @Override
+    public <T> T allowUncontrolledAccessToAnyProject(Factory<T> factory) {
+        return projectLockRegistry.allowUncontrolledAccessToAnyResource(factory);
+    }
+
+    @Override
+    public boolean isAllowedUncontrolledAccessToAnyProject() {
+        return projectLockRegistry.isAllowedUncontrolledAccessToAnyResource();
     }
 
     @Override
@@ -294,15 +318,15 @@ public class DefaultWorkerLeaseService implements WorkerLeaseService, Parallelis
     }
 
     private static class ProjectLockRegistry extends AbstractResourceLockRegistry<Path, ProjectLock> {
-        private volatile boolean parallelEnabled;
+        private final boolean parallelEnabled;
 
         public ProjectLockRegistry(ResourceLockCoordinationService coordinationService, boolean parallelEnabled) {
             super(coordinationService);
             this.parallelEnabled = parallelEnabled;
         }
 
-        void setParallelEnabled(boolean parallelEnabled) {
-            this.parallelEnabled = parallelEnabled;
+        public boolean getAllowsParallelExecution() {
+            return parallelEnabled;
         }
 
         ResourceLock getResourceLock(Path buildIdentityPath, Path projectIdentityPath) {

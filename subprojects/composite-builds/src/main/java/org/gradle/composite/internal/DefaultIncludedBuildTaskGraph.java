@@ -15,37 +15,42 @@
  */
 package org.gradle.composite.internal;
 
-import com.google.common.collect.LinkedHashMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Multimap;
+import org.gradle.api.Task;
 import org.gradle.api.artifacts.component.BuildIdentifier;
-import org.gradle.api.artifacts.component.ProjectComponentSelector;
-import org.gradle.api.internal.attributes.ImmutableAttributes;
-import org.gradle.internal.component.local.model.DefaultProjectComponentSelector;
-import org.gradle.internal.resolve.ModuleVersionResolveException;
-import org.gradle.util.Path;
+import org.gradle.api.internal.TaskInternal;
+import org.gradle.api.internal.artifacts.DefaultBuildIdentifier;
+import org.gradle.internal.build.BuildStateRegistry;
+import org.gradle.internal.build.CompositeBuildParticipantBuildState;
 
 import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+
 
 public class DefaultIncludedBuildTaskGraph implements IncludedBuildTaskGraph {
-    private final Multimap<BuildIdentifier, BuildIdentifier> buildDependencies = LinkedHashMultimap.create();
     private final IncludedBuildControllers includedBuilds;
+    private final BuildStateRegistry buildRegistry;
 
-    public DefaultIncludedBuildTaskGraph(IncludedBuildControllers includedBuilds) {
-            this.includedBuilds = includedBuilds;
-        }
+    public DefaultIncludedBuildTaskGraph(IncludedBuildControllers includedBuilds, BuildStateRegistry buildRegistry) {
+        this.includedBuilds = includedBuilds;
+        this.buildRegistry = buildRegistry;
+    }
+
+    private boolean isRoot(BuildIdentifier targetBuild) {
+        return targetBuild.equals(DefaultBuildIdentifier.ROOT);
+    }
+
+    private CompositeBuildParticipantBuildState rootBuild() {
+        return (CompositeBuildParticipantBuildState) buildRegistry.getRootBuild();
+    }
 
     @Override
     public synchronized void addTask(BuildIdentifier requestingBuild, BuildIdentifier targetBuild, String taskPath) {
-        boolean newBuildDependency = buildDependencies.put(requestingBuild, targetBuild);
-        if (newBuildDependency) {
-            List<BuildIdentifier> candidateCycle = Lists.newArrayList();
-            checkNoCycles(requestingBuild, targetBuild, candidateCycle);
+        if (isRoot(targetBuild)) {
+            if (findTaskInRootBuild(taskPath) == null) {
+                rootBuild().getBuild().getTaskGraph().addAdditionalEntryTask(taskPath);
+            }
+        } else {
+            buildControllerFor(targetBuild).queueForExecution(taskPath);
         }
-
-        getBuildController(targetBuild).queueForExecution(taskPath);
     }
 
     @Override
@@ -59,37 +64,44 @@ public class DefaultIncludedBuildTaskGraph implements IncludedBuildTaskGraph {
 
     @Override
     public IncludedBuildTaskResource.State getTaskState(BuildIdentifier targetBuild, String taskPath) {
-        IncludedBuildController controller = getBuildController(targetBuild);
-        return controller.getTaskState(taskPath);
+        if (isRoot(targetBuild)) {
+            TaskInternal task = getTask(targetBuild, taskPath);
+            if (task.getState().getFailure() != null) {
+                return IncludedBuildTaskResource.State.FAILED;
+            } else if (task.getState().getExecuted()) {
+                return IncludedBuildTaskResource.State.SUCCESS;
+            } else {
+                return IncludedBuildTaskResource.State.WAITING;
+            }
+        } else {
+            return buildControllerFor(targetBuild).getTaskState(taskPath);
+        }
     }
 
-    private IncludedBuildController getBuildController(BuildIdentifier buildId) {
+    @Override
+    public TaskInternal getTask(BuildIdentifier targetBuild, String taskPath) {
+        if (isRoot(targetBuild)) {
+            TaskInternal task = findTaskInRootBuild(taskPath);
+            if (task == null) {
+                throw new IllegalStateException("Root build task '" + taskPath + "' was never scheduled for execution.");
+            }
+            return task;
+        } else {
+            return buildControllerFor(targetBuild).getTask(taskPath);
+        }
+    }
+
+    private IncludedBuildController buildControllerFor(BuildIdentifier buildId) {
         return includedBuilds.getBuildController(buildId);
     }
 
-    private void checkNoCycles(BuildIdentifier sourceBuild, BuildIdentifier targetBuild, List<BuildIdentifier> candidateCycle) {
-        candidateCycle.add(targetBuild);
-        for (BuildIdentifier nextTarget : buildDependencies.get(targetBuild)) {
-            if (sourceBuild.equals(nextTarget)) {
-                candidateCycle.add(nextTarget);
-                ProjectComponentSelector selector = new DefaultProjectComponentSelector(candidateCycle.get(0), Path.ROOT, Path.ROOT, ":", ImmutableAttributes.EMPTY, Collections.emptyList());
-                throw new ModuleVersionResolveException(selector, () -> "Included build dependency cycle: " + reportCycle(candidateCycle));
+    private TaskInternal findTaskInRootBuild(String taskPath) {
+        for (Task task : rootBuild().getBuild().getTaskGraph().getAllTasks()) {
+            if (task.getPath().equals(taskPath)) {
+                return (TaskInternal) task;
             }
-
-            checkNoCycles(sourceBuild, nextTarget, candidateCycle);
-
         }
-        candidateCycle.remove(targetBuild);
+        return null;
     }
 
-
-    private String reportCycle(List<BuildIdentifier> cycle) {
-        StringBuilder cycleReport = new StringBuilder();
-        for (BuildIdentifier buildIdentifier : cycle) {
-            cycleReport.append(buildIdentifier);
-            cycleReport.append(" -> ");
-        }
-        cycleReport.append(cycle.get(0));
-        return cycleReport.toString();
-    }
 }

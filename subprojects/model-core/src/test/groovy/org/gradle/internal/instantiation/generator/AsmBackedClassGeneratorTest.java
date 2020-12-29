@@ -21,6 +21,7 @@ import groovy.lang.GroovyObject;
 import groovy.lang.MissingMethodException;
 import org.gradle.api.Action;
 import org.gradle.api.DomainObjectSet;
+import org.gradle.api.Named;
 import org.gradle.api.NamedDomainObjectContainer;
 import org.gradle.api.NonExtensible;
 import org.gradle.api.file.ConfigurableFileCollection;
@@ -99,12 +100,12 @@ import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.CoreMatchers.sameInstance;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -269,6 +270,17 @@ public class AsmBackedClassGeneratorTest {
     }
 
     @Test
+    public void overridesPublicConstructorsWithName() throws Exception {
+        NamedBeanWithConstructor bean = newInstance(NamedBeanWithConstructor.class, "name", "value");
+        assertThat(bean.getName(), equalTo("name"));
+        assertThat(bean.getProp(), equalTo("value"));
+
+        bean = newInstance(NamedBeanWithConstructor.class, "name");
+        assertThat(bean.getName(), equalTo("name"));
+        assertThat(bean.getProp(), equalTo("default value"));
+    }
+
+    @Test
     public void includesGenericTypeInformationForOverriddenConstructor() {
         Class<?> generatedClass = generator.generate(BeanWithComplexConstructor.class).getGeneratedClass();
         Constructor<?> constructor = generatedClass.getDeclaredConstructors()[0];
@@ -415,6 +427,15 @@ public class AsmBackedClassGeneratorTest {
     }
 
     @Test
+    public void includesAnnotationInformationForOverriddenConstructorWithName() {
+        Class<?> generatedClass = generator.generate(NamedBeanWithAnnotatedConstructor.class).getGeneratedClass();
+        Constructor<?> constructor = generatedClass.getDeclaredConstructors()[0];
+
+        assertThat(constructor.getAnnotation(Inject.class), notNullValue());
+        assertThat(constructor.getParameterTypes(), equalTo(new Class<?>[] {String.class}));
+    }
+
+    @Test
     public void canConstructInstance() throws Exception {
         Bean bean = newInstance(BeanWithConstructor.class, "value");
         assertThat(bean.getClass(), sameInstance((Object) generator.generate(BeanWithConstructor.class).getGeneratedClass()));
@@ -425,6 +446,12 @@ public class AsmBackedClassGeneratorTest {
 
         bean = newInstance(BeanWithConstructor.class, 127);
         assertThat(bean.getProp(), equalTo("127"));
+    }
+
+    @Test
+    public void implementsNamePropertyOnInterface() throws Exception {
+        InterfaceBeanWithReadOnlyName bean = newInstance(InterfaceBeanWithReadOnlyName.class, "name");
+        assertThat(bean.getName(), equalTo("name"));
     }
 
     @Test
@@ -1276,6 +1303,20 @@ public class AsmBackedClassGeneratorTest {
         }
     }
 
+    public static abstract class NamedBeanWithConstructor extends BeanWithConstructor implements Named {
+        public NamedBeanWithConstructor() {
+            super();
+        }
+
+        public NamedBeanWithConstructor(String value) {
+            super(value);
+        }
+
+        public NamedBeanWithConstructor(int value) {
+            super(value);
+        }
+    }
+
     public static class BeanWithComplexConstructor {
         private String prop;
 
@@ -1301,6 +1342,14 @@ public class AsmBackedClassGeneratorTest {
 
         @Inject
         public BeanWithAnnotatedConstructor() {
+        }
+    }
+
+    public static abstract class NamedBeanWithAnnotatedConstructor implements Named {
+        private String prop;
+
+        @Inject
+        public NamedBeanWithAnnotatedConstructor() {
         }
     }
 
@@ -1484,6 +1533,10 @@ public class AsmBackedClassGeneratorTest {
             return 12L;
         }
 
+        public int[] getIntsProperty() {
+            return new int[0];
+        }
+
         public String getReturnValueProperty() {
             return "value";
         }
@@ -1551,6 +1604,9 @@ public class AsmBackedClassGeneratorTest {
 
     public interface SomeType {
         String getInterfaceProperty();
+    }
+
+    public interface SomeNamedType extends SomeType, Named {
     }
 
     @NonExtensible
@@ -1823,6 +1879,11 @@ public class AsmBackedClassGeneratorTest {
         void setNumbers(Set<Number> values);
     }
 
+    public interface InterfaceBeanWithReadOnlyName {
+
+        String getName();
+    }
+
     public interface InterfacePrimitiveBean {
         boolean isProp1();
 
@@ -1847,6 +1908,14 @@ public class AsmBackedClassGeneratorTest {
         double getProp6();
 
         void setProp6(double value);
+
+        float getProp7();
+
+        void setProp7(float value);
+
+        char getProp8();
+
+        void setProp8(char value);
     }
 
     public interface InterfaceFileCollectionBean {

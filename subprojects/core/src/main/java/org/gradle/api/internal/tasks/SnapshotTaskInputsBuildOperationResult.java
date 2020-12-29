@@ -27,13 +27,15 @@ import org.gradle.caching.BuildCacheKey;
 import org.gradle.internal.execution.caching.CachingInputs;
 import org.gradle.internal.execution.caching.CachingState;
 import org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep;
+import org.gradle.internal.file.FileType;
 import org.gradle.internal.fingerprint.CurrentFileCollectionFingerprint;
 import org.gradle.internal.fingerprint.FileSystemLocationFingerprint;
 import org.gradle.internal.hash.HashCode;
 import org.gradle.internal.operations.trace.CustomOperationTraceSerialization;
-import org.gradle.internal.snapshot.CompleteDirectorySnapshot;
-import org.gradle.internal.snapshot.CompleteFileSystemLocationSnapshot;
-import org.gradle.internal.snapshot.FileSystemSnapshotVisitor;
+import org.gradle.internal.snapshot.DirectorySnapshot;
+import org.gradle.internal.snapshot.FileSystemLocationSnapshot;
+import org.gradle.internal.snapshot.FileSystemSnapshotHierarchyVisitor;
+import org.gradle.internal.snapshot.SnapshotVisitResult;
 import org.gradle.internal.snapshot.impl.ImplementationSnapshot;
 
 import javax.annotation.Nullable;
@@ -88,7 +90,7 @@ public class SnapshotTaskInputsBuildOperationResult implements SnapshotTaskInput
     }
 
     @NonNullApi
-    private static class State implements VisitState, FileSystemSnapshotVisitor {
+    private static class State implements VisitState, FileSystemSnapshotHierarchyVisitor {
 
         final InputFilePropertyVisitor visitor;
 
@@ -136,7 +138,7 @@ public class SnapshotTaskInputsBuildOperationResult implements SnapshotTaskInput
         }
 
         @Override
-        public boolean preVisitDirectory(CompleteDirectorySnapshot physicalSnapshot) {
+        public void enterDirectory(DirectorySnapshot physicalSnapshot) {
             this.path = physicalSnapshot.getAbsolutePath();
             this.name = physicalSnapshot.getName();
             this.hash = null;
@@ -146,18 +148,20 @@ public class SnapshotTaskInputsBuildOperationResult implements SnapshotTaskInput
             }
 
             visitor.preDirectory(this);
-
-            return true;
         }
 
         @Override
-        public void visitFile(CompleteFileSystemLocationSnapshot snapshot) {
+        public SnapshotVisitResult visitEntry(FileSystemLocationSnapshot snapshot) {
+            if (snapshot.getType() == FileType.Directory) {
+                return SnapshotVisitResult.CONTINUE;
+            }
+
             this.path = snapshot.getAbsolutePath();
             this.name = snapshot.getName();
 
             FileSystemLocationFingerprint fingerprint = fingerprints.get(path);
             if (fingerprint == null) {
-                return;
+                return SnapshotVisitResult.CONTINUE;
             }
 
             this.hash = fingerprint.getNormalizedContentHash();
@@ -172,10 +176,11 @@ public class SnapshotTaskInputsBuildOperationResult implements SnapshotTaskInput
             if (isRoot) {
                 visitor.postRoot();
             }
+            return SnapshotVisitResult.CONTINUE;
         }
 
         @Override
-        public void postVisitDirectory(CompleteDirectorySnapshot directorySnapshot) {
+        public void leaveDirectory(DirectorySnapshot directorySnapshot) {
             visitor.postDirectory();
             if (--depth == 0) {
                 visitor.postRoot();
@@ -198,7 +203,7 @@ public class SnapshotTaskInputsBuildOperationResult implements SnapshotTaskInput
                     state.fingerprints = fingerprint.getFingerprints();
 
                     visitor.preProperty(state);
-                    fingerprint.accept(state);
+                    fingerprint.getSnapshot().accept(state);
                     visitor.postProperty();
                 }
             }

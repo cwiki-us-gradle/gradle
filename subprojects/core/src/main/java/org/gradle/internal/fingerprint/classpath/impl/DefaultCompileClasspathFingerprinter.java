@@ -29,10 +29,10 @@ import org.gradle.internal.fingerprint.impl.AbstractFileCollectionFingerprinter;
 public class DefaultCompileClasspathFingerprinter extends AbstractFileCollectionFingerprinter implements CompileClasspathFingerprinter {
     public DefaultCompileClasspathFingerprinter(ResourceSnapshotterCacheService cacheService, FileCollectionSnapshotter fileCollectionSnapshotter, StringInterner stringInterner) {
         super(ClasspathFingerprintingStrategy.compileClasspath(
-                    new CachingResourceHasher(new AbiExtractingClasspathResourceHasher(), cacheService),
-                    cacheService,
-                    stringInterner
-                ), fileCollectionSnapshotter);
+            new CachingResourceHasher(new AbiExtractingClasspathResourceHasher(), cacheService),
+            cacheService,
+            stringInterner
+        ), fileCollectionSnapshotter);
     }
 
     @Override

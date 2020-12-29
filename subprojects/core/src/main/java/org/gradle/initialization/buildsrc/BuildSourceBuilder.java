@@ -36,14 +36,18 @@ import org.gradle.internal.operations.BuildOperationContext;
 import org.gradle.internal.operations.BuildOperationDescriptor;
 import org.gradle.internal.operations.BuildOperationExecutor;
 import org.gradle.internal.operations.CallableBuildOperation;
+import org.gradle.internal.service.scopes.Scopes;
+import org.gradle.internal.service.scopes.ServiceScope;
 import org.gradle.plugin.management.internal.PluginRequests;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 
+import static org.gradle.api.internal.SettingsInternal.BUILD_SRC;
 import static org.gradle.cache.internal.filelock.LockOptionsBuilder.mode;
 
+@ServiceScope(Scopes.Build.class)
 public class BuildSourceBuilder {
     private static final Logger LOGGER = LoggerFactory.getLogger(BuildSourceBuilder.class);
     private static final BuildBuildSrcBuildOperationType.Result BUILD_BUILDSRC_RESULT = new BuildBuildSrcBuildOperationType.Result() {
@@ -67,15 +71,12 @@ public class BuildSourceBuilder {
         this.publicBuildPath = publicBuildPath;
     }
 
-    public ClassLoaderScope buildAndCreateClassLoader(GradleInternal gradle) {
+    public ClassPath buildAndGetClassPath(GradleInternal gradle) {
         SettingsInternal settings = gradle.getSettings();
         File buildSrcDir = settings.getBuildSrcDir();
         ClassLoaderScope parentClassLoaderScope = settings.getClassLoaderScope();
 
-        ClassPath classpath = createBuildSourceClasspath(buildSrcDir, gradle.getStartParameter(), parentClassLoaderScope);
-        return parentClassLoaderScope.createChild(buildSrcDir.getAbsolutePath())
-            .export(classpath)
-            .lock();
+        return createBuildSourceClasspath(buildSrcDir, gradle.getStartParameter(), parentClassLoaderScope);
     }
 
     private ClassPath createBuildSourceClasspath(File buildSrcDir, final StartParameter containingBuildParameters, ClassLoaderScope parentClassLoaderScope) {
@@ -91,11 +92,12 @@ public class BuildSourceBuilder {
         buildSrcStartParameter.setProfile(containingBuildParameters.isProfile());
         final BuildDefinition buildDefinition = BuildDefinition.fromStartParameterForBuild(
             buildSrcStartParameter,
-            "buildSrc",
+            BUILD_SRC,
             buildSrcDir,
             PluginRequests.EMPTY,
             Actions.doNothing(),
-            publicBuildPath
+            publicBuildPath,
+            true
         );
         assert buildSrcStartParameter.getBuildFile() == null;
 
@@ -124,6 +126,7 @@ public class BuildSourceBuilder {
         });
     }
 
+    @SuppressWarnings("try")
     private ClassPath buildBuildSrc(final BuildDefinition buildDefinition, ClassLoaderScope parentClassLoaderScope) {
         StandAloneNestedBuild nestedBuild = buildRegistry.addBuildSrcNestedBuild(buildDefinition, currentBuild);
         return nestedBuild.run(buildController -> {

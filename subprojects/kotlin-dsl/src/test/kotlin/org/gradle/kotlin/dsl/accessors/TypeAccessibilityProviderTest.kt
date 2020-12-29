@@ -1,10 +1,11 @@
 package org.gradle.kotlin.dsl.accessors
 
+import org.junit.Assert.assertTrue
 import org.gradle.internal.classpath.ClassPath
 
 import org.hamcrest.CoreMatchers.*
+import org.hamcrest.MatcherAssert.assertThat
 
-import org.junit.Assert.*
 import org.junit.Test
 
 
@@ -21,8 +22,10 @@ class TypeAccessibilityProviderTest : TestWithClassPath() {
         assertThat(
             accessibilityFor(
                 genericTypeWithPrimitiveComponent,
-                classPath = jarClassPathWith(PublicGenericType::class)),
-            equalTo(accessible(genericTypeWithPrimitiveComponent)))
+                classPath = jarClassPathWith(PublicGenericType::class)
+            ),
+            equalTo(accessible(genericTypeWithPrimitiveComponent))
+        )
     }
 
     @Test
@@ -32,8 +35,10 @@ class TypeAccessibilityProviderTest : TestWithClassPath() {
         assertThat(
             accessibilityFor(
                 internalType,
-                classPath = jarClassPathWith(InternalType::class)),
-            equalTo(inaccessible(internalType, InaccessibilityReason.NonPublic(internalType.kotlinString))))
+                classPath = jarClassPathWith(InternalType::class)
+            ),
+            equalTo(inaccessible(internalType, InaccessibilityReason.NonPublic(internalType.kotlinString)))
+        )
     }
 
     @Test

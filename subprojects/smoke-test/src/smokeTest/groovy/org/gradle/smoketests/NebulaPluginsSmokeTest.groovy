@@ -16,7 +16,7 @@
 
 package org.gradle.smoketests
 
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
 import spock.lang.Issue
@@ -25,6 +25,7 @@ import spock.lang.Unroll
 class NebulaPluginsSmokeTest extends AbstractSmokeTest {
 
     @Issue('https://plugins.gradle.org/plugin/nebula.dependency-recommender')
+    @ToBeFixedForConfigurationCache
     def 'nebula recommender plugin'() {
         when:
         buildFile << """
@@ -40,8 +41,8 @@ class NebulaPluginsSmokeTest extends AbstractSmokeTest {
             }
 
             dependencies {
-                compile 'com.google.guava:guava' // no version, version is recommended
-                compile 'commons-lang:commons-lang:2.6' // I know what I want, don't recommend
+                implementation 'com.google.guava:guava' // no version, version is recommended
+                implementation 'commons-lang:commons-lang:2.6' // I know what I want, don't recommend
             }
             """
 
@@ -50,7 +51,7 @@ class NebulaPluginsSmokeTest extends AbstractSmokeTest {
     }
 
     @Issue('https://plugins.gradle.org/plugin/nebula.plugin-plugin')
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache(because = "Gradle.addBuildListener")
     def 'nebula plugin plugin'() {
         when:
         buildFile << """
@@ -75,7 +76,7 @@ class NebulaPluginsSmokeTest extends AbstractSmokeTest {
     }
 
     @Issue('https://plugins.gradle.org/plugin/nebula.lint')
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def 'nebula lint plugin'() {
         given:
         buildFile << """
@@ -92,7 +93,7 @@ class NebulaPluginsSmokeTest extends AbstractSmokeTest {
             gradleLint.rules = ['dependency-parentheses']
 
             dependencies {
-                testCompile('junit:junit:4.7')
+                testImplementation('junit:junit:4.7')
             }
         """.stripIndent()
 
@@ -104,8 +105,8 @@ class NebulaPluginsSmokeTest extends AbstractSmokeTest {
         result.output.contains("parentheses are unnecessary for dependencies")
         result.output.contains("warning   dependency-parentheses")
         result.output.contains("build.gradle:$numOfRepoBlockLines")
-        result.output.contains("testCompile('junit:junit:4.7')")
-        buildFile.text.contains("testCompile('junit:junit:4.7')")
+        result.output.contains("testImplementation('junit:junit:4.7')")
+        buildFile.text.contains("testImplementation('junit:junit:4.7')")
 
         when:
         result = runner('fixGradleLint').build()
@@ -113,12 +114,12 @@ class NebulaPluginsSmokeTest extends AbstractSmokeTest {
         then:
         result.output.contains("""fixed          dependency-parentheses             parentheses are unnecessary for dependencies
 build.gradle:$numOfRepoBlockLines
-testCompile('junit:junit:4.7')""")
-        buildFile.text.contains("testCompile 'junit:junit:4.7'")
+testImplementation('junit:junit:4.7')""")
+        buildFile.text.contains("testImplementation 'junit:junit:4.7'")
     }
 
     @Issue('https://plugins.gradle.org/plugin/nebula.dependency-lock')
-    @ToBeFixedForInstantExecution(because = ":buildEnvironment")
+    @ToBeFixedForConfigurationCache(because = ":buildEnvironment")
     def 'nebula dependency lock plugin'() {
         when:
         buildFile << """
@@ -133,7 +134,7 @@ testCompile('junit:junit:4.7')""")
 
     @Issue("gradle/gradle#3798")
     @Unroll
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "nebula dependency lock plugin version #version binary compatibility"() {
         when:
         buildFile << """
@@ -198,7 +199,7 @@ testCompile('junit:junit:4.7')""")
 
     @Issue('https://plugins.gradle.org/plugin/nebula.resolution-rules')
     @Requires(TestPrecondition.JDK11_OR_EARLIER)
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def 'nebula resolution rules plugin'() {
         when:
         file('rules.json') << """

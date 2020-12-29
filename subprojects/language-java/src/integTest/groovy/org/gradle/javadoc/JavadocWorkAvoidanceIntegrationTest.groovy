@@ -17,14 +17,13 @@
 package org.gradle.javadoc
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
 import org.gradle.test.fixtures.ConcurrentTestUtil
 import org.gradle.test.fixtures.archive.ZipTestFixture
 import spock.lang.IgnoreIf
 import spock.lang.Issue
 
-@IgnoreIf({GradleContextualExecuter.parallel})
+@IgnoreIf({ GradleContextualExecuter.parallel })
 class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
     def setup() {
         settingsFile << "include 'a', 'b'"
@@ -60,7 +59,6 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
         '''
     }
 
-    @ToBeFixedForInstantExecution
     def "does not regenerate javadoc when the upstream jar is just rebuilt without changes"() {
         given:
         succeeds(":a:javadoc")
@@ -93,7 +91,7 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
                 from("external/b")
                 from("external/c")
                 from("external/d")
-                
+
                 archiveFileName = "external.jar"
             }
             task reverseAlphabetic(type: Jar) {
@@ -101,7 +99,7 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
                 from("external/c")
                 from("external/b")
                 from("external/a")
-                
+
                 archiveFileName = "external.jar"
             }
         """
@@ -110,6 +108,8 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
         }
         // Generate external jar with entries in alphabetical order
         def externalJar = file('build/libs/external.jar')
+        executer.expectDocumentedDeprecationWarning(":a:compileJava consumes the output of :alphabetic, but does not declare a dependency. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. Execution optimizations are disabled due to the failed validation. See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+        executer.expectDocumentedDeprecationWarning(":a:javadoc consumes the output of :alphabetic, but does not declare a dependency. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. Execution optimizations are disabled due to the failed validation. See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
         succeeds("alphabetic", ":a:javadoc")
         new ZipTestFixture(externalJar).hasDescendantsInOrder('META-INF/MANIFEST.MF', 'a', 'b', 'c', 'd')
 
@@ -138,7 +138,7 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
                 from("external/b")
                 from("external/c")
                 from("external/d")
-                
+
                 archiveFileName = "external.jar"
             }
             task oldTime(type: Jar) {
@@ -146,7 +146,7 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
                 from("external/b")
                 from("external/c")
                 from("external/d")
-                
+
                 archiveFileName = "external.jar"
                 preserveFileTimestamps = false
             }
@@ -156,6 +156,8 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
             file("external/$it").touch()
         }
         // Generate external jar with entries with a current timestamp
+        executer.expectDocumentedDeprecationWarning(":a:compileJava consumes the output of :currentTime, but does not declare a dependency. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. Execution optimizations are disabled due to the failed validation. See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+        executer.expectDocumentedDeprecationWarning(":a:javadoc consumes the output of :currentTime, but does not declare a dependency. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. Execution optimizations are disabled due to the failed validation. See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
         succeeds("currentTime", ":a:javadoc")
         def oldHash = externalJar.md5Hash
         when:
@@ -197,6 +199,8 @@ class JavadocWorkAvoidanceIntegrationTest extends AbstractIntegrationSpec {
         duplicate.text = "duplicate"
 
         // Generate external jar with entries with a duplicate 'a' file
+        executer.expectDocumentedDeprecationWarning(":a:compileJava consumes the output of :duplicate, but does not declare a dependency. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. Execution optimizations are disabled due to the failed validation. See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+        executer.expectDocumentedDeprecationWarning(":a:javadoc consumes the output of :duplicate, but does not declare a dependency. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. Execution optimizations are disabled due to the failed validation. See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
         succeeds("duplicate", ":a:javadoc")
         def oldHash = externalJar.md5Hash
 

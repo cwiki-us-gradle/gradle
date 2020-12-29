@@ -34,6 +34,8 @@ import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.provider.SetProperty;
 import org.gradle.api.reflect.ObjectInstantiationException;
+import org.gradle.internal.service.scopes.Scope;
+import org.gradle.internal.service.scopes.ServiceScope;
 
 import java.util.List;
 import java.util.Map;
@@ -47,6 +49,7 @@ import java.util.Set;
  *
  * @since 4.0
  */
+@ServiceScope(Scope.Global.class)
 public interface ObjectFactory {
     /**
      * Creates a simple immutable {@link Named} object of the given type and name.
@@ -97,7 +100,6 @@ public interface ObjectFactory {
      * @param displayName A human consumable display name for the set.
      * @since 5.0
      */
-    @Incubating
     SourceDirectorySet sourceDirectorySet(String name, String displayName);
 
     /**
@@ -105,7 +107,6 @@ public interface ObjectFactory {
      *
      * @since 5.3
      */
-    @Incubating
     ConfigurableFileCollection fileCollection();
 
     /**
@@ -119,7 +120,9 @@ public interface ObjectFactory {
     /**
      * <p>Creates a new {@link NamedDomainObjectContainer} for managing named objects of the specified type.</p>
      *
-     * <p>The specified element type must have a public constructor which takes the name as a String parameter. The type must be non-final and a class or abstract class. Interfaces are currently not supported.</p>
+     * <p>The specified element type must have a public constructor which takes the name as a String parameter. The type must be non-final and a class or abstract class.</p>
+     *
+     * <p>Interfaces are supported if they declare a read-only {@code name} property of type String, and are otherwise empty or consist entirely of managed properties.</p>
      *
      * <p>All objects <b>MUST</b> expose their name as a bean property called "name". The name must be constant for the life of the object.</p>
      *
@@ -259,7 +262,6 @@ public interface ObjectFactory {
      *
      * @since 5.0
      */
-    @Incubating
     DirectoryProperty directoryProperty();
 
     /**
@@ -267,6 +269,5 @@ public interface ObjectFactory {
      *
      * @since 5.0
      */
-    @Incubating
     RegularFileProperty fileProperty();
 }

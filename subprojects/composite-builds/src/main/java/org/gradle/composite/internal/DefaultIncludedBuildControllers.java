@@ -17,8 +17,8 @@
 package org.gradle.composite.internal;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
 import org.gradle.api.artifacts.component.BuildIdentifier;
+import org.gradle.api.internal.project.ProjectStateRegistry;
 import org.gradle.internal.build.BuildStateRegistry;
 import org.gradle.internal.build.IncludedBuildState;
 import org.gradle.internal.concurrent.CompositeStoppable;
@@ -30,19 +30,22 @@ import org.gradle.internal.operations.CurrentBuildOperationRef;
 import org.gradle.internal.resources.ResourceLockCoordinationService;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 
 class DefaultIncludedBuildControllers implements Stoppable, IncludedBuildControllers {
-    private final Map<BuildIdentifier, IncludedBuildController> buildControllers = Maps.newHashMap();
+    private final Map<BuildIdentifier, IncludedBuildController> buildControllers = new HashMap<>();
     private final ManagedExecutor executorService;
     private final ResourceLockCoordinationService coordinationService;
+    private final ProjectStateRegistry projectStateRegistry;
     private final BuildStateRegistry buildRegistry;
     private BuildOperationRef rootBuildOperation;
 
-    DefaultIncludedBuildControllers(ExecutorFactory executorFactory, BuildStateRegistry buildRegistry, ResourceLockCoordinationService coordinationService) {
+    DefaultIncludedBuildControllers(ExecutorFactory executorFactory, BuildStateRegistry buildRegistry, ResourceLockCoordinationService coordinationService, ProjectStateRegistry projectStateRegistry) {
         this.buildRegistry = buildRegistry;
         this.executorService = executorFactory.create("included builds");
         this.coordinationService = coordinationService;
+        this.projectStateRegistry = projectStateRegistry;
     }
 
     @Override
@@ -58,7 +61,7 @@ class DefaultIncludedBuildControllers implements Stoppable, IncludedBuildControl
         }
 
         IncludedBuildState build = buildRegistry.getIncludedBuild(buildId);
-        DefaultIncludedBuildController newBuildController = new DefaultIncludedBuildController(build, coordinationService);
+        DefaultIncludedBuildController newBuildController = new DefaultIncludedBuildController(build, coordinationService, projectStateRegistry);
         buildControllers.put(buildId, newBuildController);
         executorService.submit(new BuildOpRunnable(newBuildController, rootBuildOperation));
         return newBuildController;

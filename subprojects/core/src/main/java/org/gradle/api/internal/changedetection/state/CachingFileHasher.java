@@ -20,7 +20,7 @@ import com.google.common.base.Objects;
 import org.gradle.api.internal.cache.StringInterner;
 import org.gradle.cache.PersistentIndexedCache;
 import org.gradle.cache.PersistentIndexedCacheParameters;
-import org.gradle.internal.file.FileMetadataSnapshot;
+import org.gradle.internal.file.FileMetadata;
 import org.gradle.internal.hash.FileHasher;
 import org.gradle.internal.hash.HashCode;
 import org.gradle.internal.nativeintegration.filesystem.FileSystem;
@@ -38,8 +38,18 @@ public class CachingFileHasher implements FileHasher {
     private final FileSystem fileSystem;
     private final StringInterner stringInterner;
     private final FileTimeStampInspector timestampInspector;
+    private final FileHasherStatistics.Collector statisticsCollector;
 
-    public CachingFileHasher(FileHasher delegate, CrossBuildFileHashCache store, StringInterner stringInterner, FileTimeStampInspector timestampInspector, String cacheName, FileSystem fileSystem, int inMemorySize) {
+    public CachingFileHasher(
+        FileHasher delegate,
+        CrossBuildFileHashCache store,
+        StringInterner stringInterner,
+        FileTimeStampInspector timestampInspector,
+        String cacheName,
+        FileSystem fileSystem,
+        int inMemorySize,
+        FileHasherStatistics.Collector statisticsCollector
+    ) {
         this.delegate = delegate;
         this.fileSystem = fileSystem;
         this.cache = store.createCache(
@@ -48,10 +58,7 @@ public class CachingFileHasher implements FileHasher {
             true);
         this.stringInterner = stringInterner;
         this.timestampInspector = timestampInspector;
-    }
-
-    public CachingFileHasher(FileHasher delegate, CrossBuildFileHashCache store, StringInterner stringInterner, FileTimeStampInspector timestampInspector, String cacheName, FileSystem fileSystem) {
-        this(delegate, store, stringInterner, timestampInspector, cacheName, fileSystem, 400000);
+        this.statisticsCollector = statisticsCollector;
     }
 
     @Override
@@ -70,14 +77,14 @@ public class CachingFileHasher implements FileHasher {
     }
 
     private FileInfo snapshot(File file) {
-        FileMetadataSnapshot fileMetadata = fileSystem.stat(file);
+        FileMetadata fileMetadata = fileSystem.stat(file);
         return snapshot(file, fileMetadata.getLength(), fileMetadata.getLastModified());
     }
 
     private FileInfo snapshot(File file, long length, long timestamp) {
         String absolutePath = file.getAbsolutePath();
         if (timestampInspector.timestampCanBeUsedToDetectFileChange(absolutePath, timestamp)) {
-            FileInfo info = cache.get(absolutePath);
+            FileInfo info = cache.getIfPresent(absolutePath);
 
             if (info != null && length == info.length && timestamp == info.timestamp) {
                 return info;
@@ -87,6 +94,7 @@ public class CachingFileHasher implements FileHasher {
         HashCode hash = delegate.hash(file);
         FileInfo info = new FileInfo(hash, length, timestamp);
         cache.put(stringInterner.intern(absolutePath), info);
+        statisticsCollector.reportFileHashed(length);
         return info;
     }
 

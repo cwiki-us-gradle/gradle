@@ -23,10 +23,14 @@ import it.unimi.dsi.fastutil.ints.IntSet;
 import org.gradle.api.internal.tasks.compile.incremental.processing.AnnotationProcessingData;
 import org.gradle.api.internal.tasks.compile.incremental.processing.GeneratedResource;
 
+import java.util.ArrayDeque;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ClassSetAnalysis {
 
@@ -67,9 +71,9 @@ public class ClassSetAnalysis {
     }
 
     public DependentsSet getRelevantDependents(Iterable<String> classes, IntSet constants) {
-        final Set<String> accessibleResultClasses = Sets.newLinkedHashSet();
-        final Set<String> privateResultClasses = Sets.newLinkedHashSet();
-        final Set<GeneratedResource> resultResources = Sets.newLinkedHashSet();
+        final Set<String> accessibleResultClasses = new LinkedHashSet<>();
+        final Set<String> privateResultClasses = new LinkedHashSet<>();
+        final Set<GeneratedResource> resultResources = new LinkedHashSet<>();
         for (String cls : classes) {
             DependentsSet d = getRelevantDependents(cls, constants);
             if (d.isDependencyToAll()) {
@@ -101,17 +105,17 @@ public class ClassSetAnalysis {
         if (!constants.isEmpty()) {
             return DependentsSet.dependencyToAll();
         }
-        Set<String> classesDependingOnAllOthers = annotationProcessingData.getGeneratedTypesDependingOnAllOthers();
-        Set<GeneratedResource> resourcesDependingOnAllOthers = annotationProcessingData.getGeneratedResourcesDependingOnAllOthers();
+        Set<String> classesDependingOnAllOthers = annotationProcessingData.participatesInClassGeneration(className) ? annotationProcessingData.getGeneratedTypesDependingOnAllOthers() : Collections.emptySet();
+        Set<GeneratedResource> resourcesDependingOnAllOthers = annotationProcessingData.participatesInResourceGeneration(className) ? annotationProcessingData.getGeneratedResourcesDependingOnAllOthers() : Collections.emptySet();
         if (!deps.hasDependentClasses() && classesDependingOnAllOthers.isEmpty() && resourcesDependingOnAllOthers.isEmpty()) {
             return deps;
         }
 
-        Set<String> privateResultClasses = new HashSet<String>();
-        Set<String> accessibleResultClasses = new HashSet<String>();
-        Set<GeneratedResource> resultResources = new HashSet<GeneratedResource>(resourcesDependingOnAllOthers);
-        processDependentClasses(new HashSet<String>(), privateResultClasses, accessibleResultClasses, resultResources, deps.getPrivateDependentClasses(), deps.getAccessibleDependentClasses());
-        processDependentClasses(new HashSet<String>(), privateResultClasses, accessibleResultClasses, resultResources, Collections.emptySet(), classesDependingOnAllOthers);
+        Set<String> privateResultClasses = new HashSet<>();
+        Set<String> accessibleResultClasses = new HashSet<>();
+        Set<GeneratedResource> resultResources = new HashSet<>(resourcesDependingOnAllOthers);
+        processDependentClasses(new HashSet<>(), privateResultClasses, accessibleResultClasses, resultResources, deps.getPrivateDependentClasses(), deps.getAccessibleDependentClasses());
+        processDependentClasses(new HashSet<>(), privateResultClasses, accessibleResultClasses, resultResources, Collections.emptySet(), classesDependingOnAllOthers);
         accessibleResultClasses.remove(className);
         privateResultClasses.remove(className);
 
@@ -119,7 +123,15 @@ public class ClassSetAnalysis {
     }
 
     public Set<String> getTypesToReprocess() {
-        return annotationProcessingData.getAggregatedTypes();
+        // Because of https://github.com/gradle/gradle/issues/13767 and
+        // https://github.com/gradle/gradle/issues/15009 it is possible
+        // that the types to reprocess are actually generated types
+        // so when we see a type to reprocess we need to track what
+        // actually generated this type, not use it directly!
+        return annotationProcessingData.getAggregatedTypes()
+            .stream()
+            .map(annotationProcessingData::getOriginOf)
+            .collect(Collectors.toSet());
     }
 
     public boolean isDependencyToAll(String className) {
@@ -131,27 +143,46 @@ public class ClassSetAnalysis {
      * further dependents, while resources are just data accumulated along the way. Recurses for classes that
      * are "publicly accessbile", i.e. classes that are not just used privately in a class.
      */
-    private void processDependentClasses(Set<String> visitedClasses, Set<String> privateResultClasses, Set<String> accessibleResultClasses, Set<GeneratedResource> resultResources, Iterable<String> privateDependentClasses, Iterable<String> accessibleDependentClasses) {
-        for (String d : privateDependentClasses) {
-            if (!visitedClasses.add(d)) {
+    private void processDependentClasses(Set<String> visitedClasses,
+                                         Set<String> privateResultClasses,
+                                         Set<String> accessibleResultClasses,
+                                         Set<GeneratedResource> resultResources,
+                                         Iterable<String> privateDependentClasses,
+                                         Iterable<String> accessibleDependentClasses) {
+
+        for (String privateDependentClass : privateDependentClasses) {
+            if (!visitedClasses.add(privateDependentClass)) {
                 continue;
             }
-            privateResultClasses.add(d);
-            DependentsSet currentDependents = getDependents(d);
+            privateResultClasses.add(privateDependentClass);
+            DependentsSet currentDependents = getDependents(privateDependentClass);
             if (!currentDependents.isDependencyToAll()) {
                 resultResources.addAll(currentDependents.getDependentResources());
             }
         }
 
-        for (String d : accessibleDependentClasses) {
-            if (!visitedClasses.add(d)) {
+        processTransitiveDependentClasses(visitedClasses, accessibleResultClasses, resultResources, accessibleDependentClasses);
+    }
+
+    private void processTransitiveDependentClasses(Set<String> visitedClasses,
+                                                   Set<String> accessibleResultClasses,
+                                                   Set<GeneratedResource> resultResources,
+                                                   Iterable<String> accessibleDependentClasses) {
+        Deque<String> remainingAccessibleDependentClasses = new ArrayDeque<>();
+        for (String accessibleDependentClass : accessibleDependentClasses) {
+            remainingAccessibleDependentClasses.add(accessibleDependentClass);
+        }
+
+        while (!remainingAccessibleDependentClasses.isEmpty()) {
+            String accessibleDependentClass = remainingAccessibleDependentClasses.pop();
+            if (!visitedClasses.add(accessibleDependentClass)) {
                 continue;
             }
-            accessibleResultClasses.add(d);
-            DependentsSet currentDependents = getDependents(d);
+            accessibleResultClasses.add(accessibleDependentClass);
+            DependentsSet currentDependents = getDependents(accessibleDependentClass);
             if (!currentDependents.isDependencyToAll()) {
                 resultResources.addAll(currentDependents.getDependentResources());
-                processDependentClasses(visitedClasses, privateResultClasses, accessibleResultClasses, resultResources, Collections.emptySet(), currentDependents.getAccessibleDependentClasses());
+                remainingAccessibleDependentClasses.addAll(currentDependents.getAccessibleDependentClasses());
             }
         }
     }

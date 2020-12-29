@@ -16,9 +16,11 @@
 
 package org.gradle.api.internal.provider;
 
-import org.gradle.api.internal.tasks.TaskDependencyResolveContext;
+import org.gradle.api.Action;
+import org.gradle.api.Task;
 
 import javax.annotation.Nullable;
+import java.util.ArrayList;
 
 class OrElseProvider<T> extends AbstractMinimalProvider<T> {
     private final ProviderInternal<T> left;
@@ -36,38 +38,79 @@ class OrElseProvider<T> extends AbstractMinimalProvider<T> {
     }
 
     @Override
-    public boolean isValueProducedByTask() {
-        // TODO - this isn't quite right. The value isn't produced by a task when left always has a value and its value is not produced by a task
-        return left.isValueProducedByTask() || right.isValueProducedByTask();
+    public ValueProducer getProducer() {
+        ExecutionTimeValue<? extends T> leftValue = left.calculateExecutionTimeValue();
+        return leftValue.isMissing()
+            ? right.getProducer()
+            : new OrElseValueProducer();
     }
 
     @Override
-    public boolean maybeVisitBuildDependencies(TaskDependencyResolveContext context) {
-        if (left.isValueProducedByTask() && !left.maybeVisitBuildDependencies(context)) {
-            return false;
+    public boolean calculatePresence(ValueConsumer consumer) {
+        return left.calculatePresence(consumer) || right.calculatePresence(consumer);
+    }
+
+    @Override
+    public ExecutionTimeValue<? extends T> calculateExecutionTimeValue() {
+        ExecutionTimeValue<? extends T> leftValue = left.calculateExecutionTimeValue();
+        if (!leftValue.isMissing()) {
+            // favour left execution time value if present for better configuration cache integration
+            // of idioms like `property.convention(provider.orElse(somethingElse))`
+            return leftValue;
         }
-        if (!left.isValueProducedByTask() && left.isPresent()) {
-            return left.maybeVisitBuildDependencies(context);
-        }
-        // TODO - this isn't quite right. We shouldn't build right's inputs when left always has a value, but that value is produced by a task
-        return right.maybeVisitBuildDependencies(context);
+        return super.calculateExecutionTimeValue();
     }
 
     @Override
-    public boolean isPresent() {
-        return left.isPresent() || right.isPresent();
-    }
-
-    @Override
-    protected Value<? extends T> calculateOwnValue() {
-        Value<? extends T> leftValue = left.calculateValue();
+    protected Value<? extends T> calculateOwnValue(ValueConsumer consumer) {
+        Value<? extends T> leftValue = left.calculateValue(consumer);
         if (!leftValue.isMissing()) {
             return leftValue;
         }
-        Value<? extends T> rightValue = right.calculateValue();
+        Value<? extends T> rightValue = right.calculateValue(consumer);
         if (!rightValue.isMissing()) {
             return rightValue;
         }
         return leftValue.addPathsFrom(rightValue);
+    }
+
+    private class OrElseValueProducer implements ValueProducer {
+
+        final ValueProducer leftProducer = left.getProducer();
+        final ValueProducer rightProducer = right.getProducer();
+
+        @Override
+        public boolean isKnown() {
+            return leftProducer.isKnown()
+                || rightProducer.isKnown();
+        }
+
+        @Override
+        public boolean isProducesDifferentValueOverTime() {
+            return leftProducer.isProducesDifferentValueOverTime()
+                || rightProducer.isProducesDifferentValueOverTime();
+        }
+
+        @Override
+        public void visitProducerTasks(Action<? super Task> visitor) {
+            ArrayList<Task> leftTasks = producerTasksOf(leftProducer);
+            ArrayList<Task> rightTasks = producerTasksOf(rightProducer);
+            if (leftTasks.isEmpty() && rightTasks.isEmpty()) {
+                return;
+            }
+            // TODO: configuration cache: this condition needs to be evaluated at execution time
+            //  when `leftProducer.isProducesDifferentValueOverTime()`
+            ArrayList<Task> producerTasks = left.isPresent()
+                ? leftTasks
+                : rightTasks;
+            producerTasks.forEach(visitor::execute);
+        }
+
+        private ArrayList<Task> producerTasksOf(ValueProducer producer) {
+            ArrayList<Task> tasks = new ArrayList<>();
+            producer.visitProducerTasks(tasks::add);
+            return tasks;
+        }
+
     }
 }

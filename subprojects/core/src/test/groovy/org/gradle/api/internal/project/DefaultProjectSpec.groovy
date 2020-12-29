@@ -29,6 +29,7 @@ import org.gradle.api.internal.initialization.ClassLoaderScope
 import org.gradle.api.internal.tasks.TaskContainerInternal
 import org.gradle.api.model.ObjectFactory
 import org.gradle.groovy.scripts.ScriptSource
+import org.gradle.internal.management.DependencyResolutionManagementInternal
 import org.gradle.internal.instantiation.InstantiatorFactory
 import org.gradle.internal.service.ServiceRegistry
 import org.gradle.internal.service.scopes.ServiceRegistryFactory
@@ -96,10 +97,12 @@ class DefaultProjectSpec extends Specification {
 
     def "has useful toString and displayName and paths"() {
         def rootBuild = Stub(GradleInternal)
+        rootBuild.isRootBuild() >> true
         rootBuild.parent >> null
         rootBuild.identityPath >> Path.ROOT
 
         def nestedBuild = Stub(GradleInternal)
+        rootBuild.isRootBuild() >> false
         nestedBuild.parent >> rootBuild
         nestedBuild.identityPath >> Path.path(":nested")
 
@@ -152,6 +155,7 @@ class DefaultProjectSpec extends Specification {
         _ * serviceRegistry.get(InstantiatorFactory) >> Stub(InstantiatorFactory)
         _ * serviceRegistry.get(AttributesSchema) >> Stub(AttributesSchema)
         _ * serviceRegistry.get(ModelRegistry) >> Stub(ModelRegistry)
+        _ * serviceRegistry.get(DependencyResolutionManagementInternal) >> Stub(DependencyResolutionManagementInternal)
 
         def fileOperations = Stub(FileOperations)
         fileOperations.fileTree(_) >> TestFiles.fileOperations(tmpDir.testDirectory).fileTree('tree')

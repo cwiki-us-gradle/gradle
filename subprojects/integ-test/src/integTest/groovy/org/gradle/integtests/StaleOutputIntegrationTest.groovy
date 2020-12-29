@@ -19,7 +19,6 @@ package org.gradle.integtests
 import org.gradle.api.internal.tasks.execution.CleanupStaleOutputsExecuter
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.BuildOperationsFixture
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.util.ToBeImplemented
 import spock.lang.Issue
@@ -29,7 +28,6 @@ import spock.lang.Unroll
 class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
 
     @Issue(['GRADLE-2440', 'GRADLE-2579'])
-    @ToBeFixedForInstantExecution
     def 'stale output file is removed after input source directory is emptied.'() {
         def taskWithSources = new TaskWithSources()
         taskWithSources.createInputs()
@@ -125,7 +123,7 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
     def "two tasks can output in the same directory with --rerun-tasks"() {
         buildFile << """
             apply plugin: 'base'
-            
+
             task firstCopy {
                 inputs.file('first.file')
                 outputs.dir('build/destination')
@@ -133,7 +131,7 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
                     file('build/destination/first.file').text = file('first.file').text
                 }
             }
-            
+
             task secondCopy {
                 inputs.file('second.file')
                 outputs.dir('build/destination')
@@ -141,7 +139,7 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
                     file('build/destination/second.file').text = file('second.file').text
                 }
             }
-            
+
             secondCopy.dependsOn firstCopy
         """
         file("first.file").createFile()
@@ -158,14 +156,14 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
         given:
         buildFile << """
             apply plugin: 'base'
-            
+
             task myTask {
                 outputs.dir "external/output"
                 outputs.file "customFile"
                 outputs.dir "build/dir"
                 doLast {}
             }
-            
+
             clean {
                 delete "customFile"
             }
@@ -192,13 +190,15 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
             apply plugin: 'base'
 
             task myTask {
-                outputs.file "build/file"
-                outputs.dir "build/dir"
+                def builtFile = file('build/file')
+                def builtDir = file('build/dir')
+                outputs.file builtFile
+                outputs.dir builtDir
                 doLast {
-                    assert !file("build/file").exists()
-                    file("build/file").text = "Created"
-                    assert file("build/dir").directory
-                    assert file("build/dir").list().length == 0
+                    assert !builtFile.exists()
+                    builtFile.text = "Created"
+                    assert builtDir.directory
+                    assert builtDir.list().length == 0
                 }
             }
         """
@@ -363,7 +363,7 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
         String taskName = 'test'
 
         String getBuildScript() {
-            """       
+            """
                 apply plugin: 'base'
 
                 task ${taskName} {
@@ -436,9 +436,10 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
         skipped(taskWithLocalState.taskPath)
     }
 
-    @ToBeFixedForInstantExecution
     def "up-to-date checks detect removed stale outputs"() {
-        buildFile << """                                    
+
+        given:
+        buildFile << """
             plugins {
                 id 'base'
             }
@@ -446,34 +447,30 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
             def originalDir = file('build/original')
             def backupDir = file('backup')
 
-            task backup {
-                inputs.files(originalDir)
-                outputs.dir(backupDir)
-                doLast {
-                    copy {
-                        from originalDir
-                        into backupDir
-                    }
-                }
+            task backup(type: Copy) {
+                from originalDir
+                into backupDir
             }
-            
-            task restore {
-                inputs.files(backupDir)
-                outputs.dir(originalDir)
-                doLast {
-                    copy {
-                        from backupDir
-                        into originalDir
-                    }
-                }
+
+            task restore(type: Copy) {
+                from backupDir
+                into originalDir
             }
         """
 
+        and:
         def original = file('build/original/original.txt')
         original.text = "Original"
         def backup = file('backup/original.txt')
 
+        and:
+        executer.beforeExecute {
+            withArgument("--max-workers=1")
+        }
+
         when:
+        executer.expectDocumentedDeprecationWarning(":backup consumes the output of :restore, but does not declare a dependency. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. Execution optimizations are disabled due to the failed validation. See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+        executer.expectDocumentedDeprecationWarning(":restore consumes the output of :backup, but does not declare a dependency. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. Execution optimizations are disabled due to the failed validation. See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
         run 'backup', 'restore'
 
         then:
@@ -490,6 +487,8 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
         //
         // If cleaning up stale output files does not invalidate the file system mirror, then the restore task would be up-to-date.
         invalidateBuildOutputCleanupState()
+        executer.expectDocumentedDeprecationWarning(":backup consumes the output of :restore, but does not declare a dependency. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. Execution optimizations are disabled due to the failed validation. See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+        executer.expectDocumentedDeprecationWarning(":restore consumes the output of :backup, but does not declare a dependency. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. Execution optimizations are disabled due to the failed validation. See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
         run 'backup', 'restore', '--info'
 
         then:
@@ -502,8 +501,6 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
 
     def "task with file tree output can be up-to-date"() {
         buildFile << """
-            import javax.inject.Inject
-
             plugins {
                 id 'base'
             }
@@ -522,14 +519,14 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
                 FileCollection getOutputFileTree() {
                     objectFactory.fileTree().setDir(outputDir).include('**/myOutput.txt')
                 }
-                
+
                 @TaskAction
                 void generateOutputs() {
                     outputDir.mkdirs()
                     new File(outputDir, 'myOutput.txt').text = input
                 }
             }
-            
+
             task custom(type: TaskWithFileTreeOutput) {
                 outputDir = file('build/outputs')
                 input = 'input'
@@ -556,7 +553,7 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
         String taskName = 'test'
 
         String getBuildScript() {
-            """       
+            """
                 apply plugin: 'base'
 
                 task ${taskName} {
@@ -682,8 +679,6 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
 
         String getBuildScript() {
             """
-            import javax.inject.Inject
-
             apply plugin: 'base'
 
             task ${taskName}(type: MyTask) {
@@ -711,10 +706,10 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
                         from(inputDir) {
                             into 'subDir'
                         }
-                        from inputFile 
+                        from inputFile
                     }
                 }
-            }                        
+            }
 
             if (project.findProperty('assertRemoved')) {
                 ${taskName}.doFirst {
@@ -723,10 +718,10 @@ class StaleOutputIntegrationTest extends AbstractIntegrationSpec {
                     assert !file('${outputFilePath}').exists()
                 }
             }
-                
+
             task writeDirectlyToOutputDir {
                 outputs.dir('${buildDir}')
-                
+
                 doLast {
                     file("${getOverlappingOutputDir()}").mkdirs()
                     file("${getOverlappingOutputDir()}/new-output.txt").text = "new output"

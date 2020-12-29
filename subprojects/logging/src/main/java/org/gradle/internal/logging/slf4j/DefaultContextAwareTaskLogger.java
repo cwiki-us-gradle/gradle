@@ -18,7 +18,6 @@ package org.gradle.internal.logging.slf4j;
 
 import org.gradle.api.logging.LogLevel;
 import org.gradle.api.logging.Logger;
-import org.gradle.api.logging.Logging;
 import org.gradle.internal.Cast;
 import org.gradle.internal.operations.CurrentBuildOperationRef;
 import org.gradle.internal.operations.OperationIdentifier;
@@ -26,9 +25,11 @@ import org.slf4j.Marker;
 import org.slf4j.helpers.FormattingTuple;
 import org.slf4j.helpers.MessageFormatter;
 
+import static org.gradle.internal.logging.slf4j.BuildOperationAwareLogger.toLogLevel;
+
 public class DefaultContextAwareTaskLogger implements ContextAwareTaskLogger {
 
-    private BuildOperationAwareLogger delegate;
+    private final BuildOperationAwareLogger delegate;
     private OperationIdentifier fallbackOperationIdentifier = null;
 
     public DefaultContextAwareTaskLogger(Logger delegate) {
@@ -151,11 +152,12 @@ public class DefaultContextAwareTaskLogger implements ContextAwareTaskLogger {
     }
 
     private void log(LogLevel logLevel, Throwable throwable, String message) {
+        delegate.log(logLevel, throwable, message, currentBuildOperationId());
+    }
+
+    private OperationIdentifier currentBuildOperationId() {
         OperationIdentifier buildOperationId = CurrentBuildOperationRef.instance().getId();
-        if (buildOperationId == null) {
-            buildOperationId = fallbackOperationIdentifier;
-        }
-        delegate.log(logLevel, throwable, message, buildOperationId);
+        return buildOperationId != null ? buildOperationId : fallbackOperationIdentifier;
     }
 
     private void log(LogLevel logLevel, Throwable throwable, String format, Object arg) {
@@ -342,19 +344,6 @@ public class DefaultContextAwareTaskLogger implements ContextAwareTaskLogger {
         }
     }
 
-    private LogLevel toLogLevel(Marker marker) {
-        if (marker == null) {
-            return LogLevel.INFO;
-        }
-        if (marker == Logging.LIFECYCLE) {
-            return LogLevel.LIFECYCLE;
-        }
-        if (marker == Logging.QUIET) {
-            return LogLevel.QUIET;
-        }
-        return LogLevel.INFO;
-    }
-
     @Override
     public void info(Marker marker, String msg) {
         if (isInfoEnabled(marker)) {
@@ -529,5 +518,4 @@ public class DefaultContextAwareTaskLogger implements ContextAwareTaskLogger {
             log(LogLevel.ERROR, t, msg);
         }
     }
-
 }

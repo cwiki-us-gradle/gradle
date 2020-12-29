@@ -19,6 +19,7 @@ package org.gradle.process.internal.worker;
 import org.gradle.api.Action;
 import org.gradle.api.logging.LogLevel;
 import org.gradle.internal.Actions;
+import org.gradle.internal.Cast;
 import org.gradle.internal.classloader.ClasspathUtil;
 import org.gradle.internal.classpath.ClassPath;
 import org.gradle.internal.logging.events.OutputEventListener;
@@ -62,14 +63,14 @@ class DefaultMultiRequestWorkerProcessBuilder<IN, OUT> implements MultiRequestWo
     }
 
     @Override
-    public WorkerProcessSettings setInferApplicationModulePath(boolean inferApplicationModulePath) {
-        workerProcessBuilder.setInferApplicationModulePath(inferApplicationModulePath);
+    public WorkerProcessSettings applicationModulePath(Iterable<File> files) {
+        workerProcessBuilder.applicationModulePath(files);
         return this;
     }
 
     @Override
-    public boolean isInferApplicationModulePath() {
-        return workerProcessBuilder.isInferApplicationModulePath();
+    public Set<File> getApplicationModulePath() {
+        return workerProcessBuilder.getApplicationModulePath();
     }
 
     @Override
@@ -191,7 +192,7 @@ class DefaultMultiRequestWorkerProcessBuilder<IN, OUT> implements MultiRequestWo
                         throw WorkerProcessException.runFailed(getBaseName(), e);
                     }
                 }
-                return (OUT) receiver.getNextResult();
+                return Cast.uncheckedNonnullCast(receiver.getNextResult());
             }
         };
     }

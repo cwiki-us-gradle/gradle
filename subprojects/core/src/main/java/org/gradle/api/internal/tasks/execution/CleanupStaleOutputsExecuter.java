@@ -24,7 +24,7 @@ import org.gradle.api.internal.tasks.TaskExecutionContext;
 import org.gradle.api.internal.tasks.TaskStateInternal;
 import org.gradle.api.internal.tasks.properties.FilePropertySpec;
 import org.gradle.api.internal.tasks.properties.TaskProperties;
-import org.gradle.internal.cleanup.BuildOutputCleanupRegistry;
+import org.gradle.internal.execution.BuildOutputCleanupRegistry;
 import org.gradle.internal.execution.OutputChangeListener;
 import org.gradle.internal.execution.history.OutputFilesRepository;
 import org.gradle.internal.file.Deleter;
@@ -37,7 +37,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -90,15 +89,11 @@ public class CleanupStaleOutputsExecuter implements TaskExecuter {
             );
             buildOperationExecutor.run(new RunnableBuildOperation() {
                 @Override
-                public void run(BuildOperationContext context) {
+                public void run(BuildOperationContext context) throws IOException {
                     for (File file : filesToDelete) {
                         if (file.exists()) {
                             logger.info("Deleting stale output file: {}", file.getAbsolutePath());
-                            try {
-                                deleter.deleteRecursively(file);
-                            } catch (IOException ex) {
-                                throw new UncheckedIOException("Couldn't delete stale output file", ex);
-                            }
+                            deleter.deleteRecursively(file);
                         }
                     }
                 }

@@ -21,6 +21,7 @@ import com.nhaarman.mockito_kotlin.doReturn
 import com.nhaarman.mockito_kotlin.mock
 import com.nhaarman.mockito_kotlin.verify
 import com.nhaarman.mockito_kotlin.verifyNoMoreInteractions
+import org.gradle.api.internal.file.TmpDirTemporaryFileProvider
 import org.gradle.api.internal.file.pattern.PatternMatcher
 
 import org.gradle.internal.hash.HashUtil
@@ -32,10 +33,11 @@ import org.gradle.kotlin.dsl.fixtures.codegen.ClassToKClass
 import org.gradle.kotlin.dsl.fixtures.codegen.ClassToKClassParameterizedType
 import org.gradle.kotlin.dsl.fixtures.codegen.GroovyNamedArguments
 import org.gradle.kotlin.dsl.support.normaliseLineSeparators
+import org.gradle.test.fixtures.file.LeaksFileHandles
 
 import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.equalTo
-import org.junit.Assert.assertThat
+import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Test
 
 import org.slf4j.Logger
@@ -52,6 +54,7 @@ import java.util.jar.Manifest
 import kotlin.reflect.KClass
 
 
+@LeaksFileHandles("embedded Kotlin compiler environment keepalive")
 class GradleApiExtensionsTest : TestWithClassPath() {
 
     @Test
@@ -64,7 +67,7 @@ class GradleApiExtensionsTest : TestWithClassPath() {
             ClassAndGroovyNamedArguments::class
         ) {
 
-            assertGeneratedJarHash("09e568a928f5de15d5ad9489f372ce7d")
+            assertGeneratedJarHash("90db312180f41e0893ffd9560ff71cf3")
         }
     }
 
@@ -339,12 +342,14 @@ class GradleApiExtensionsTest : TestWithClassPath() {
         val useDir = file("use").also { it.mkdirs() }
         val usageFiles = extensionsUsages.mapIndexed { idx, usage ->
             useDir.resolve("usage$idx.kt").also {
-                it.writeText("""
-                import org.gradle.kotlin.dsl.fixtures.codegen.*
-                import org.gradle.kotlin.dsl.*
+                it.writeText(
+                    """
+                    import org.gradle.kotlin.dsl.fixtures.codegen.*
+                    import org.gradle.kotlin.dsl.*
 
-                $usage
-                """.trimIndent())
+                    $usage
+                    """.trimIndent()
+                )
             }
         }
 
@@ -367,7 +372,12 @@ class GradleApiExtensionsTest : TestWithClassPath() {
     private
     fun GradleApiExtensionsTest.ApiKotlinExtensionsGeneration.assertGeneratedJarHash(hash: String) =
         file("api-extensions.jar").let { generatedJar ->
-            generateApiExtensionsJar(generatedJar, apiJars, apiMetadataJar) {}
+            generateApiExtensionsJar(
+                TmpDirTemporaryFileProvider.createLegacy(),
+                generatedJar,
+                apiJars,
+                apiMetadataJar
+            ) {}
             assertThat(
                 HashUtil.createHash(generatedJar, "MD5").asZeroPaddedHexString(32),
                 equalTo(hash)
@@ -376,7 +386,7 @@ class GradleApiExtensionsTest : TestWithClassPath() {
 
     private
     fun apiJarsWith(vararg classes: KClass<*>): List<File> =
-        jarClassPathWith("gradle-api.jar", *classes).asFiles
+        jarClassPathWith("gradle-api.jar", *classes, org.gradle.api.Generated::class).asFiles
 
     private
     fun fixturesApiMetadataJar(): File =

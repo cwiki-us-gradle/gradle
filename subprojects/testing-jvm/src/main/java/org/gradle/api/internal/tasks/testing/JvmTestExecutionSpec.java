@@ -18,16 +18,19 @@ package org.gradle.api.internal.tasks.testing;
 
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileTree;
+import org.gradle.internal.scan.UsedByScanPlugin;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.util.Path;
 
 import java.io.File;
+import java.util.Collections;
 import java.util.Set;
 
+@UsedByScanPlugin("test-distribution, test-retry")
 public class JvmTestExecutionSpec implements TestExecutionSpec {
     private final TestFramework testFramework;
     private final Iterable<? extends File> classpath;
-    private final boolean inferModulePath;
+    private final Iterable<? extends File> modulePath;
     private final FileTree candidateClassFiles;
     private final boolean scanForTestClasses;
     private final FileCollection testClassesDirs;
@@ -38,17 +41,16 @@ public class JvmTestExecutionSpec implements TestExecutionSpec {
     private final int maxParallelForks;
     private final Set<String> previousFailedTestClasses;
 
-    /**
-     * Required by test-retry-gradle-plugin <= 1.1.3
-     */
+    @UsedByScanPlugin("test-retry <= 1.1.3")
     public JvmTestExecutionSpec(TestFramework testFramework, Iterable<? extends File> classpath, FileTree candidateClassFiles, boolean scanForTestClasses, FileCollection testClassesDirs, String path, Path identityPath, long forkEvery, JavaForkOptions javaForkOptions, int maxParallelForks, Set<String> previousFailedTestClasses) {
-        this(testFramework, classpath, false, candidateClassFiles, scanForTestClasses, testClassesDirs, path, identityPath, forkEvery, javaForkOptions, maxParallelForks, previousFailedTestClasses);
+        this(testFramework, classpath, Collections.<File>emptyList(), candidateClassFiles, scanForTestClasses, testClassesDirs, path, identityPath, forkEvery, javaForkOptions, maxParallelForks, previousFailedTestClasses);
     }
 
-    public JvmTestExecutionSpec(TestFramework testFramework, Iterable<? extends File> classpath, boolean inferModulePath, FileTree candidateClassFiles, boolean scanForTestClasses, FileCollection testClassesDirs, String path, Path identityPath, long forkEvery, JavaForkOptions javaForkOptions, int maxParallelForks, Set<String> previousFailedTestClasses) {
+    @UsedByScanPlugin("test-retry")
+    public JvmTestExecutionSpec(TestFramework testFramework, Iterable<? extends File> classpath, Iterable<? extends File>  modulePath, FileTree candidateClassFiles, boolean scanForTestClasses, FileCollection testClassesDirs, String path, Path identityPath, long forkEvery, JavaForkOptions javaForkOptions, int maxParallelForks, Set<String> previousFailedTestClasses) {
         this.testFramework = testFramework;
         this.classpath = classpath;
-        this.inferModulePath = inferModulePath;
+        this.modulePath = modulePath;
         this.candidateClassFiles = candidateClassFiles;
         this.scanForTestClasses = scanForTestClasses;
         this.testClassesDirs = testClassesDirs;
@@ -64,14 +66,17 @@ public class JvmTestExecutionSpec implements TestExecutionSpec {
         return testFramework;
     }
 
+    @UsedByScanPlugin("test-distribution")
     public Iterable<? extends File> getClasspath() {
         return classpath;
     }
 
-    public boolean isInferModulePath() {
-        return inferModulePath;
+    @UsedByScanPlugin("test-distribution")
+    public Iterable<? extends File> getModulePath() {
+        return modulePath;
     }
 
+    @UsedByScanPlugin("test-distribution")
     public FileTree getCandidateClassFiles() {
         return candidateClassFiles;
     }
@@ -80,22 +85,27 @@ public class JvmTestExecutionSpec implements TestExecutionSpec {
         return scanForTestClasses;
     }
 
+    @UsedByScanPlugin("test-retry")
     public FileCollection getTestClassesDirs() {
         return testClassesDirs;
     }
 
+    @UsedByScanPlugin("test-distribution")
     public String getPath() {
         return path;
     }
 
+    @UsedByScanPlugin("test-distribution")
     public Path getIdentityPath() {
         return identityPath;
     }
 
+    @UsedByScanPlugin("test-distribution")
     public long getForkEvery() {
         return forkEvery;
     }
 
+    @UsedByScanPlugin("test-distribution")
     public JavaForkOptions getJavaForkOptions() {
         return javaForkOptions;
     }

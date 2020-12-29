@@ -20,6 +20,8 @@ import org.gradle.api.Action
 import org.gradle.api.initialization.dsl.ScriptHandler
 import org.gradle.api.internal.ProcessOperations
 import org.gradle.api.internal.file.FileOperations
+import org.gradle.api.internal.file.TemporaryFileProvider
+import org.gradle.api.internal.file.TmpDirTemporaryFileProvider
 import org.gradle.api.internal.initialization.ClassLoaderScope
 import org.gradle.api.internal.plugins.DefaultObjectConfigurationAction
 import org.gradle.api.plugins.ObjectConfigurationAction
@@ -56,6 +58,14 @@ class KotlinScriptHost<out T : Any>(
     }
 
     internal
+    val temporaryFileProvider: TemporaryFileProvider by unsafeLazy {
+        // TmpDirTemporaryFileProvider must be used instead of the TemporaryFileProvider.
+        // In this scope the TemporaryFileProvider would be provided by the ProjectScopeServices.
+        // That would generate this temporary directory inside of the project build directory.
+        serviceRegistry.get<TmpDirTemporaryFileProvider>()
+    }
+
+    internal
     fun applyObjectConfigurationAction(configure: Action<in ObjectConfigurationAction>) {
         executeObjectConfigurationAction { configure(it) }
     }
@@ -78,5 +88,6 @@ class KotlinScriptHost<out T : Any>(
             serviceRegistry.get(),
             baseScope,
             serviceRegistry.get(),
-            target)
+            target
+        )
 }

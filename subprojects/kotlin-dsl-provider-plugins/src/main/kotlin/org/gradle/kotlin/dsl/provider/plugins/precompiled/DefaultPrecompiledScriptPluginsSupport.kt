@@ -18,7 +18,6 @@ package org.gradle.kotlin.dsl.provider.plugins.precompiled
 import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.file.Directory
-import org.gradle.api.file.FileCollection
 import org.gradle.api.file.SourceDirectorySet
 import org.gradle.api.initialization.Settings
 import org.gradle.api.invocation.Gradle
@@ -26,12 +25,6 @@ import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.TaskProvider
 
-import org.gradle.tooling.model.kotlin.dsl.KotlinDslModelsParameters
-
-import org.gradle.internal.classloader.ClasspathHasher
-import org.gradle.internal.classpath.ClassPath
-import org.gradle.internal.classpath.DefaultClassPath
-import org.gradle.internal.hash.HashCode
 
 import org.gradle.kotlin.dsl.*
 import org.gradle.kotlin.dsl.precompile.v1.PrecompiledInitScript
@@ -48,10 +41,10 @@ import org.gradle.kotlin.dsl.provider.plugins.precompiled.tasks.GeneratePrecompi
 import org.gradle.kotlin.dsl.provider.plugins.precompiled.tasks.GenerateScriptPluginAdapters
 import org.gradle.kotlin.dsl.provider.plugins.precompiled.tasks.HashedProjectSchema
 
-import org.gradle.kotlin.dsl.support.serviceOf
-
 import org.gradle.plugin.devel.GradlePluginDevelopmentExtension
 import org.gradle.plugin.devel.plugins.JavaGradlePluginPlugin
+
+import org.gradle.tooling.model.kotlin.dsl.KotlinDslModelsParameters
 
 import java.io.File
 import java.util.function.Consumer
@@ -189,14 +182,7 @@ fun Project.enableScriptCompilationOf(
 
     val pluginSpecBuildersMetadata = buildDir("kotlin-dsl/precompiled-script-plugins-metadata/plugin-spec-builders")
 
-    val compileClasspath = HashedClassPath(
-        { compileClasspath() },
-        { hashOf(it) }
-    )
-
-    val pluginSpecBuildersPackage = provider {
-        "gradle.kotlin.dsl.plugins._${compileClasspath.hash}"
-    }
+    val compileClasspath = sourceSets["main"].compileClasspath
 
     tasks {
 
@@ -211,10 +197,9 @@ fun Project.enableScriptCompilationOf(
                 "generateExternalPluginSpecBuilders",
                 kotlinSourceDirectorySet
             ) {
-                hashedClassPath = compileClasspath
+                classPathFiles.from(compileClasspath)
                 sourceCodeOutputDir.set(it)
                 metadataOutputDir.set(pluginSpecBuildersMetadata)
-                sharedAccessorsPackage.set(pluginSpecBuildersPackage)
             }
 
         val compilePluginsBlocks by registering(CompilePrecompiledScriptPluginPlugins::class) {
@@ -225,9 +210,8 @@ fun Project.enableScriptCompilationOf(
             dependsOn(generateExternalPluginSpecBuilders)
             sourceDir(externalPluginSpecBuilders)
 
-            hashedClassPath = compileClasspath
+            classPathFiles.from(compileClasspath)
             outputDir.set(compiledPluginsBlocks)
-            sharedAccessorsPackage.set(pluginSpecBuildersPackage)
         }
 
         val (generatePrecompiledScriptPluginAccessors, _) =
@@ -237,8 +221,8 @@ fun Project.enableScriptCompilationOf(
                 kotlinSourceDirectorySet
             ) {
                 dependsOn(compilePluginsBlocks)
-                hashedClassPath = compileClasspath
-                runtimeClassPathFiles = configurations["runtimeClasspath"]
+                classPathFiles.from(compileClasspath)
+                runtimeClassPathFiles.from(configurations["runtimeClasspath"])
                 sourceCodeOutputDir.set(it)
                 metadataOutputDir.set(accessorsMetadata)
                 compiledPluginsBlocksDir.set(compiledPluginsBlocks)
@@ -248,7 +232,7 @@ fun Project.enableScriptCompilationOf(
         val configurePrecompiledScriptDependenciesResolver by registering(ConfigurePrecompiledScriptDependenciesResolver::class) {
             dependsOn(generatePrecompiledScriptPluginAccessors)
             metadataDir.set(accessorsMetadata)
-            sharedAccessorsPackage.set(pluginSpecBuildersPackage)
+            classPathFiles.from(compileClasspath)
             onConfigure { resolverEnvironment ->
                 applyKotlinCompilerArgs(
                     listOf(
@@ -273,29 +257,6 @@ fun Project.enableScriptCompilationOf(
 }
 
 
-internal
-class HashedClassPath(
-    filesProvider: () -> FileCollection,
-    private val classPathHasher: (ClassPath) -> HashCode
-) {
-
-    val classPathFiles by lazy(filesProvider)
-
-    val classPath by lazy {
-        DefaultClassPath.of(classPathFiles.files)
-    }
-
-    val hash by lazy {
-        classPathHasher(classPath)
-    }
-}
-
-
-private
-fun Project.hashOf(classPath: ClassPath) =
-    project.serviceOf<ClasspathHasher>().hash(classPath)
-
-
 private
 fun Project.registerBuildScriptModelTask(
     modelTask: TaskProvider<out Task>
@@ -304,11 +265,6 @@ fun Project.registerBuildScriptModelTask(
         it.dependsOn(modelTask)
     }
 }
-
-
-private
-fun Project.compileClasspath(): FileCollection =
-    sourceSets["main"].compileClasspath
 
 
 private

@@ -19,28 +19,31 @@ package org.gradle.internal.snapshot.impl
 import org.gradle.api.internal.file.TestFiles
 import org.gradle.api.tasks.util.PatternSet
 import org.gradle.internal.MutableReference
+import org.gradle.internal.file.FileMetadata.AccessType
+import org.gradle.internal.file.impl.DefaultFileMetadata
 import org.gradle.internal.fingerprint.impl.PatternSetSnapshottingFilter
 import org.gradle.internal.hash.HashCode
 import org.gradle.internal.nativeintegration.filesystem.FileSystem
-import org.gradle.internal.snapshot.CompleteDirectorySnapshot
-import org.gradle.internal.snapshot.CompleteFileSystemLocationSnapshot
-import org.gradle.internal.snapshot.FileMetadata
+import org.gradle.internal.snapshot.DirectorySnapshot
+import org.gradle.internal.snapshot.FileSystemLocationSnapshot
 import org.gradle.internal.snapshot.FileSystemSnapshot
-import org.gradle.internal.snapshot.FileSystemSnapshotVisitor
+import org.gradle.internal.snapshot.FileSystemSnapshotHierarchyVisitor
 import org.gradle.internal.snapshot.RegularFileSnapshot
 import org.gradle.internal.snapshot.SnapshottingFilter
-import org.gradle.internal.vfs.VirtualFileSystem
+import org.gradle.internal.vfs.FileSystemAccess
 import org.gradle.test.fixtures.file.CleanupTestDirectory
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.junit.Rule
 import spock.lang.Specification
+
+import static org.gradle.internal.snapshot.SnapshotVisitResult.CONTINUE
 
 @CleanupTestDirectory
 class FileSystemSnapshotFilterTest extends Specification {
     @Rule
     final TestNameTestDirectoryProvider temporaryFolder = TestNameTestDirectoryProvider.newInstance(getClass())
 
-    VirtualFileSystem virtualFileSystem = TestFiles.virtualFileSystem()
+    FileSystemAccess fileSystemAccess = TestFiles.fileSystemAccess()
     FileSystem fileSystem = TestFiles.fileSystem()
 
     def "filters correctly"() {
@@ -54,8 +57,8 @@ class FileSystemSnapshotFilterTest extends Specification {
         def subdir = dir1.createDir("subdir")
         def subdirFile1 = subdir.createFile("subdirFile1")
 
-        MutableReference<CompleteFileSystemLocationSnapshot> result = MutableReference.empty()
-        virtualFileSystem.read(root.getAbsolutePath(), snapshottingFilter(new PatternSet()), result.&set)
+        MutableReference<FileSystemLocationSnapshot> result = MutableReference.empty()
+        fileSystemAccess.read(root.getAbsolutePath(), snapshottingFilter(new PatternSet()), result.&set)
         def unfiltered = result.get()
 
         expect:
@@ -72,14 +75,15 @@ class FileSystemSnapshotFilterTest extends Specification {
 
     def "root directory is always matched"() {
         def root = temporaryFolder.createFile("root")
+        def unfiltered = new DirectorySnapshot(root.absolutePath, root.name, AccessType.DIRECT, HashCode.fromInt(789), [])
 
         expect:
-        filteredPaths(new CompleteDirectorySnapshot(root.absolutePath, root.name, [], HashCode.fromInt(789)), include("different")) == [root] as Set
+        filteredPaths(unfiltered, include("different")) == [root] as Set
     }
 
     def "root file can be filtered"() {
         def root = temporaryFolder.createFile("root")
-        def regularFileSnapshot = new RegularFileSnapshot(root.absolutePath, root.name, HashCode.fromInt(1234), new FileMetadata(5, 1234))
+        def regularFileSnapshot = new RegularFileSnapshot(root.absolutePath, root.name, HashCode.fromInt(1234), DefaultFileMetadata.file(5, 1234, AccessType.DIRECT))
 
         expect:
         filteredPaths(regularFileSnapshot, include("different")) == [] as Set
@@ -93,32 +97,24 @@ class FileSystemSnapshotFilterTest extends Specification {
         dir1.createFile("dirFile1")
         dir1.createFile("dirFile2")
 
-        MutableReference<CompleteFileSystemLocationSnapshot> result = MutableReference.empty()
-        virtualFileSystem.read(root.getAbsolutePath(), snapshottingFilter(new PatternSet()), result.&set)
+        MutableReference<FileSystemLocationSnapshot> result = MutableReference.empty()
+        fileSystemAccess.read(root.getAbsolutePath(), snapshottingFilter(new PatternSet()), result.&set)
         def unfiltered = result.get()
 
-        expect:
-        FileSystemSnapshotFilter.filterSnapshot(snapshottingFilter(include("**/*File*")).asSnapshotPredicate, unfiltered).is(unfiltered)
+        when:
+        def filtered = FileSystemSnapshotFilter.filterSnapshot(snapshottingFilter(include("**/*File*")).asSnapshotPredicate, unfiltered)
+
+        then:
+        filtered.is(unfiltered)
     }
 
     private Set<File> filteredPaths(FileSystemSnapshot unfiltered, PatternSet patterns) {
         def result = [] as Set
-        FileSystemSnapshotFilter.filterSnapshot(snapshottingFilter(patterns).asSnapshotPredicate, unfiltered).accept(new FileSystemSnapshotVisitor() {
-            @Override
-            boolean preVisitDirectory(CompleteDirectorySnapshot directorySnapshot) {
-                result << new File(directorySnapshot.absolutePath)
-                return true
-            }
-
-            @Override
-            void visitFile(CompleteFileSystemLocationSnapshot fileSnapshot) {
-                result << new File(fileSnapshot.absolutePath)
-            }
-
-            @Override
-            void postVisitDirectory(CompleteDirectorySnapshot directorySnapshot) {
-            }
-        })
+        def filtered = FileSystemSnapshotFilter.filterSnapshot(snapshottingFilter(patterns).asSnapshotPredicate, unfiltered)
+        filtered.accept({ FileSystemLocationSnapshot snapshot ->
+            result << new File(snapshot.absolutePath)
+            return CONTINUE
+        } as FileSystemSnapshotHierarchyVisitor)
         return result
     }
 

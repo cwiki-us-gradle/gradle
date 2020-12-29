@@ -17,7 +17,6 @@
 package org.gradle.launcher.continuous
 
 import org.gradle.integtests.fixtures.AbstractContinuousIntegrationTest
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
 
@@ -41,7 +40,6 @@ class SimpleJavaContinuousIntegrationTest extends AbstractContinuousIntegrationT
         executed(":build")
     }
 
-    @ToBeFixedForInstantExecution
     def "can build when source dir is removed"() {
         when:
         file("src/main/java/Thing.java") << "class Thing {}"
@@ -174,7 +172,7 @@ class SimpleJavaContinuousIntegrationTest extends AbstractContinuousIntegrationT
         buildFile << """
             ${mavenCentralRepository()}
             dependencies {
-                compile "log4j:log4j:1.2.17"
+                implementation "log4j:log4j:1.2.17"
             }
         """
 
@@ -199,7 +197,7 @@ class SimpleJavaContinuousIntegrationTest extends AbstractContinuousIntegrationT
         file("src/main/java/Foo.java") << "class Foo extends Thing{}"
         buildFile << """
             dependencies {
-                compile files("lib/somelib.jar")
+                implementation files("lib/somelib.jar")
             }
         """
 
@@ -238,7 +236,7 @@ class SimpleJavaContinuousIntegrationTest extends AbstractContinuousIntegrationT
         file("src/main/java/Foo.java") << "class Foo implements Thing, Thing2{}"
         buildFile << """
             dependencies {
-                compile fileTree("libs/")
+                implementation fileTree("libs/")
             }
         """
 

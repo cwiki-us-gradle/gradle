@@ -33,7 +33,7 @@ import java.util.Set;
 public class ResolvedArtifactCollectingVisitor implements ArtifactVisitor {
     private final Set<ResolvedArtifactResult> artifacts = Sets.newLinkedHashSet();
     private final Set<Throwable> failures = Sets.newLinkedHashSet();
-    private final Set<ComponentArtifactIdentifier> seenArtifacts = new HashSet<ComponentArtifactIdentifier>();
+    private final Set<ComponentArtifactIdentifier> seenArtifacts = new HashSet<>();
 
     @Override
     public void visitFailure(Throwable failure) {
@@ -44,7 +44,6 @@ public class ResolvedArtifactCollectingVisitor implements ArtifactVisitor {
     public void visitArtifact(DisplayName variantName, AttributeContainer variantAttributes, ResolvableArtifact artifact) {
         try {
             if (seenArtifacts.add(artifact.getId())) {
-                // Trigger download of file, if required
                 File file = artifact.getFile();
                 this.artifacts.add(new DefaultResolvedArtifactResult(artifact.getId(), variantAttributes, variantName, Artifact.class, file));
             }

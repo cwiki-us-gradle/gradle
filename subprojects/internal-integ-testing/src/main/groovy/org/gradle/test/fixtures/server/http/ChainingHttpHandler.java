@@ -19,10 +19,12 @@ package org.gradle.test.fixtures.server.http;
 import com.google.common.base.Charsets;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.exceptions.DefaultMultiCauseException;
 import org.gradle.internal.time.Clock;
 import org.gradle.internal.time.Time;
+import org.gradle.test.fixtures.ResettableExpectations;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -34,7 +36,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 
-class ChainingHttpHandler implements HttpHandler {
+import static org.gradle.integtests.fixtures.timeout.JavaProcessStackTracesMonitor.getAllStackTracesByJstack;
+
+class ChainingHttpHandler implements HttpHandler, ResettableExpectations {
     private final int timeoutMs;
     private final AtomicInteger counter;
     private final List<TrackingHttpHandler> handlers = new CopyOnWriteArrayList<TrackingHttpHandler>();
@@ -67,10 +71,7 @@ class ChainingHttpHandler implements HttpHandler {
     }
 
     public void waitForCompletion() {
-        for (TrackingHttpHandler handler : handlers) {
-            handler.cancelBlockedRequests();
-        }
-
+        cancelBlockedRequests();
         waitForRequestsToFinish();
 
         lock.lock();
@@ -94,6 +95,26 @@ class ChainingHttpHandler implements HttpHandler {
         }
     }
 
+    @Override
+    public void resetExpectations() {
+        cancelBlockedRequests();
+        waitForRequestsToFinish();
+        lock.lock();
+        try {
+            outcomes.clear();
+            handlers.clear();
+            completed = true;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void cancelBlockedRequests() {
+        for (TrackingHttpHandler handler : handlers) {
+            handler.cancelBlockedRequests();
+        }
+    }
+
     private void waitForRequestsToFinish() {
         long completionTimeout = clock.getCurrentTime() + timeoutMs;
         for (RequestOutcome outcome : outcomes) {
@@ -108,20 +129,23 @@ class ChainingHttpHandler implements HttpHandler {
             int id = counter.incrementAndGet();
 
             RequestOutcome outcome = requestStarted(httpExchange);
-            System.out.println(String.format("[%d] handling %s", id, outcome.getDisplayName()));
+            System.out.printf("[%d] handling %s%n", id, outcome.getDisplayName());
 
             try {
                 ResponseProducer responseProducer = selectProducer(id, httpExchange);
-                System.out.println(String.format("[%d] sending response for %s", id, outcome.getDisplayName()));
+                System.out.printf("[%d] sending response for %s%n", id, outcome.getDisplayName());
                 if (!responseProducer.isFailure()) {
                     responseProducer.writeTo(id, httpExchange);
                 } else {
                     Throwable failure = responseProducer.getFailure();
                     requestFailed(outcome, failure);
+                    String stacktrace = ExceptionUtils.getStackTrace(failure);
+                    dumpThreadsUponTimeout(stacktrace);
+                    System.out.printf("[%d] handling failed with exception %s%n", id, stacktrace);
                     sendFailure(httpExchange, 400, outcome);
                 }
             } catch (Throwable t) {
-                System.out.println(String.format("[%d] handling %s failed with exception", id, outcome.getDisplayName()));
+                System.out.printf("[%d] handling %s failed with exception%n", id, outcome.getDisplayName());
                 try {
                     sendFailure(httpExchange, 500, outcome);
                 } catch (IOException e) {
@@ -133,6 +157,13 @@ class ChainingHttpHandler implements HttpHandler {
             }
         } finally {
             httpExchange.close();
+        }
+    }
+
+    // Dump all JVMs' threads on the machine to troubleshoot deadlock issues
+    private void dumpThreadsUponTimeout(String stacktrace) {
+        if (stacktrace.contains("due to a timeout waiting for other requests")) {
+            System.out.println(getAllStackTracesByJstack());
         }
     }
 

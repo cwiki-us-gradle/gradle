@@ -26,7 +26,6 @@ import org.gradle.api.artifacts.transform.CacheableTransform;
 import org.gradle.api.artifacts.transform.InputArtifact;
 import org.gradle.api.artifacts.transform.InputArtifactDependencies;
 import org.gradle.api.file.ConfigurableFileCollection;
-import org.gradle.api.internal.AbstractTask;
 import org.gradle.api.internal.ConventionTask;
 import org.gradle.api.internal.DefaultDomainObjectCollection;
 import org.gradle.api.internal.DefaultDomainObjectSet;
@@ -67,6 +66,7 @@ import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.CompileClasspath;
 import org.gradle.api.tasks.Console;
 import org.gradle.api.tasks.Destroys;
+import org.gradle.api.tasks.IgnoreEmptyDirectories;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputDirectory;
 import org.gradle.api.tasks.InputFile;
@@ -123,6 +123,8 @@ public class ExecutionGlobalServices {
     );
 
     TypeAnnotationMetadataStore createAnnotationMetadataStore(CrossBuildInMemoryCacheFactory cacheFactory) {
+        @SuppressWarnings("deprecation")
+        Class<?> deprecatedAbstractTask = org.gradle.api.internal.AbstractTask.class;
         return new DefaultTypeAnnotationMetadataStore(
             ImmutableSet.of(
                 CacheableTask.class,
@@ -135,7 +137,7 @@ public class ExecutionGlobalServices {
                 "kotlin"
             ),
             ImmutableSet.of(
-                AbstractTask.class,
+                deprecatedAbstractTask,
                 ClosureBackedAction.class,
                 ConfigureUtil.WrappedConfigureAction.class,
                 ConventionTask.class,
@@ -203,7 +205,8 @@ public class ExecutionGlobalServices {
                 Incremental.class,
                 Optional.class,
                 PathSensitive.class,
-                SkipWhenEmpty.class
+                SkipWhenEmpty.class,
+                IgnoreEmptyDirectories.class
             ),
             instantiationScheme);
         return new TaskScheme(instantiationScheme, inspectionScheme);

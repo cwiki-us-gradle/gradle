@@ -32,7 +32,6 @@ import org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter;
 import org.gradle.api.internal.tasks.execution.CleanupStaleOutputsExecuter;
 import org.gradle.api.internal.tasks.execution.DefaultEmptySourceTaskSkipper;
 import org.gradle.api.internal.tasks.execution.DefaultTaskCacheabilityResolver;
-import org.gradle.api.internal.tasks.execution.DefaultTaskSnapshotter;
 import org.gradle.api.internal.tasks.execution.EmptySourceTaskSkipper;
 import org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter;
 import org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter;
@@ -41,17 +40,14 @@ import org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter;
 import org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter;
 import org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter;
 import org.gradle.api.internal.tasks.execution.TaskCacheabilityResolver;
-import org.gradle.api.internal.tasks.execution.TaskSnapshotter;
-import org.gradle.api.internal.tasks.properties.PropertyWalker;
 import org.gradle.caching.internal.controller.BuildCacheController;
 import org.gradle.execution.taskgraph.TaskExecutionGraphInternal;
 import org.gradle.execution.taskgraph.TaskListenerInternal;
-import org.gradle.internal.cleanup.BuildOutputCleanupRegistry;
+import org.gradle.internal.enterprise.core.GradleEnterprisePluginManager;
 import org.gradle.internal.event.ListenerManager;
-import org.gradle.internal.execution.CachingResult;
-import org.gradle.internal.execution.ExecutionRequestContext;
+import org.gradle.internal.execution.BuildOutputCleanupRegistry;
+import org.gradle.internal.execution.ExecutionEngine;
 import org.gradle.internal.execution.OutputChangeListener;
-import org.gradle.internal.execution.WorkExecutor;
 import org.gradle.internal.execution.history.ExecutionHistoryStore;
 import org.gradle.internal.execution.history.OutputFilesRepository;
 import org.gradle.internal.file.DefaultReservedFileSystemLocationRegistry;
@@ -67,12 +63,9 @@ import org.gradle.internal.fingerprint.classpath.impl.DefaultClasspathFingerprin
 import org.gradle.internal.fingerprint.impl.DefaultFileCollectionFingerprinterRegistry;
 import org.gradle.internal.hash.ClassLoaderHierarchyHasher;
 import org.gradle.internal.operations.BuildOperationExecutor;
-import org.gradle.internal.scan.config.BuildScanPluginApplied;
 import org.gradle.internal.service.DefaultServiceRegistry;
-import org.gradle.internal.service.scopes.VirtualFileSystemServices;
 import org.gradle.internal.work.AsyncWorkTracker;
 import org.gradle.normalization.internal.InputNormalizationHandlerInternal;
-import org.gradle.util.IncubationLogger;
 
 import java.util.List;
 
@@ -113,7 +106,7 @@ public class ProjectExecutionServices extends DefaultServiceRegistry {
         BuildCacheController buildCacheController,
         BuildOperationExecutor buildOperationExecutor,
         BuildOutputCleanupRegistry cleanupRegistry,
-        BuildScanPluginApplied buildScanPlugin,
+        GradleEnterprisePluginManager gradleEnterprisePluginManager,
         ClassLoaderHierarchyHasher classLoaderHierarchyHasher,
         Deleter deleter,
         EmptySourceTaskSkipper emptySourceTaskSkipper,
@@ -124,38 +117,22 @@ public class ProjectExecutionServices extends DefaultServiceRegistry {
         ListenerManager listenerManager,
         OutputChangeListener outputChangeListener,
         OutputFilesRepository outputFilesRepository,
-        PropertyWalker propertyWalker,
         ReservedFileSystemLocationRegistry reservedFileSystemLocationRegistry,
-        StartParameter startParameter,
         TaskActionListener actionListener,
         TaskCacheabilityResolver taskCacheabilityResolver,
         TaskExecutionGraphInternal taskExecutionGraph,
         TaskExecutionListener taskExecutionListener,
         TaskExecutionModeResolver repository,
         TaskListenerInternal taskListenerInternal,
-        TaskSnapshotter taskSnapshotter,
-        WorkExecutor<ExecutionRequestContext, CachingResult> workExecutor
+        ExecutionEngine executionEngine
     ) {
-
-        ExecuteActionsTaskExecuter.VfsInvalidationStrategy vfsInvalidationStrategy = VirtualFileSystemServices.isPartialInvalidationEnabled(startParameter.getSystemPropertiesArgs())
-            ? ExecuteActionsTaskExecuter.VfsInvalidationStrategy.PARTIAL
-            : ExecuteActionsTaskExecuter.VfsInvalidationStrategy.COMPLETE;
-
-        // TODO: The incubation message should be printed in VirtualFileSystemServices.
-        //   The problem is that `RootBuildLifecycleListener.afterStart` is called to early to have the system properties from gradle.properties available
-        //   We log the message now here as a workaround.
-        if (vfsInvalidationStrategy == ExecuteActionsTaskExecuter.VfsInvalidationStrategy.PARTIAL && !VirtualFileSystemServices.isRetentionEnabled(startParameter.getSystemPropertiesArgs())) {
-            IncubationLogger.incubatingFeatureUsed("Partial virtual file system invalidation");
-        }
         TaskExecuter executer = new ExecuteActionsTaskExecuter(
             buildCacheController.isEnabled()
                 ? ExecuteActionsTaskExecuter.BuildCacheState.ENABLED
                 : ExecuteActionsTaskExecuter.BuildCacheState.DISABLED,
-            buildScanPlugin.isBuildScanPluginApplied()
+            gradleEnterprisePluginManager.isPresent()
                 ? ExecuteActionsTaskExecuter.ScanPluginState.APPLIED
                 : ExecuteActionsTaskExecuter.ScanPluginState.NOT_APPLIED,
-            vfsInvalidationStrategy,
-            taskSnapshotter,
             executionHistoryStore,
             buildOperationExecutor,
             asyncWorkTracker,
@@ -163,7 +140,7 @@ public class ProjectExecutionServices extends DefaultServiceRegistry {
             taskCacheabilityResolver,
             fingerprinterRegistry,
             classLoaderHierarchyHasher,
-            workExecutor,
+            executionEngine,
             listenerManager,
             reservedFileSystemLocationRegistry,
             emptySourceTaskSkipper,
@@ -179,7 +156,7 @@ public class ProjectExecutionServices extends DefaultServiceRegistry {
             executer
         );
         executer = new FinalizePropertiesTaskExecuter(executer);
-        executer = new ResolveTaskExecutionModeExecuter(repository, fileCollectionFactory, propertyWalker, executer);
+        executer = new ResolveTaskExecutionModeExecuter(repository, executer);
         executer = new SkipTaskWithNoActionsExecuter(taskExecutionGraph, executer);
         executer = new SkipOnlyIfTaskExecuter(executer);
         executer = new CatchExceptionTaskExecuter(executer);
@@ -192,13 +169,11 @@ public class ProjectExecutionServices extends DefaultServiceRegistry {
         return new DefaultClasspathFingerprinter(
             resourceSnapshotterCacheService,
             fileCollectionSnapshotter,
-            inputNormalizationHandler.getRuntimeClasspath().getResourceFilter(),
+            inputNormalizationHandler.getRuntimeClasspath().getClasspathResourceFilter(),
+            inputNormalizationHandler.getRuntimeClasspath().getManifestAttributeResourceEntryFilter(),
+            inputNormalizationHandler.getRuntimeClasspath().getPropertiesFileFilters(),
             stringInterner
         );
-    }
-
-    TaskSnapshotter createTaskFingerprinter(FileCollectionSnapshotter fileCollectionSnapshotter) {
-        return new DefaultTaskSnapshotter(fileCollectionSnapshotter);
     }
 
     FileCollectionFingerprinterRegistry createFileCollectionFingerprinterRegistry(List<FileCollectionFingerprinter> fingerprinters) {

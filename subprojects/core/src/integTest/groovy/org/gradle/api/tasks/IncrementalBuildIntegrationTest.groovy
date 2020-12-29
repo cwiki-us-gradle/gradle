@@ -16,7 +16,7 @@
 package org.gradle.api.tasks
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.util.ToBeImplemented
 import spock.lang.Issue
@@ -106,7 +106,7 @@ public class TransformerTask extends DefaultTask {
 '''
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache(because = "task wrongly up-to-date")
     def "skips task when output file is up-to-date"() {
         writeTransformerTask()
 
@@ -567,7 +567,7 @@ task b(type: DirTransformerTask, dependsOn: a) {
         }
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache(because = "task wrongly up-to-date")
     def "skips tasks when input properties have not changed"() {
         buildFile << '''
 public class GeneratorTask extends DefaultTask {
@@ -696,28 +696,29 @@ task b(type: DirTransformerTask) {
         result.assertTasksNotSkipped(":b")
     }
 
-    @ToBeFixedForInstantExecution
     def "can use up-to-date predicate to force task to execute"() {
         def inputFileName = 'src.txt'
 
         buildFile << """
+def isUpToDate = providers.gradleProperty('uptodate').map { true }.orElse(false)
+
 task inputsAndOutputs {
-    def inputFile = '${inputFileName}'
-    def outputFile = 'src.a.txt'
+    def inputFile = file('${inputFileName}')
+    def outputFile = file('src.a.txt')
     inputs.files inputFile
     outputs.file outputFile
-    outputs.upToDateWhen { project.hasProperty('uptodate') }
+    outputs.upToDateWhen { isUpToDate.get() }
     doFirst {
-        file(outputFile).text = "[\${file(inputFile).text}]"
+        outputFile.text = "[\${inputFile.text}]"
     }
 }
 task noOutputs {
     inputs.file 'src.txt'
-    outputs.upToDateWhen { project.hasProperty('uptodate') }
+    outputs.upToDateWhen { isUpToDate.get() }
     doFirst { }
 }
 task nothing {
-    outputs.upToDateWhen { project.hasProperty('uptodate') }
+    outputs.upToDateWhen { isUpToDate.get() }
     doFirst { }
 }
 """
@@ -828,7 +829,7 @@ task b(dependsOn: a)
         result.assertTasksSkipped(":a", ":b")
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache(because = "GradleBuild task")
     def "can share artifacts between builds"() {
         writeTransformerTask()
 
@@ -994,6 +995,7 @@ task generate(type: TransformerTask) {
 """
 
         when:
+        executer.expectDocumentedDeprecationWarning(":transform1 consumes the output of :src2, but does not declare a dependency. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. Execution optimizations are disabled due to the failed validation. See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
         run "src1", "transform1", "src2", "transform2"
 
         then:
@@ -1075,7 +1077,7 @@ task generate(type: TransformerTask) {
         output.contains "Task 'b2' file 'output.txt' with 'output-file'"
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache(because = "ClassNotFoundException: CustomTask")
     def "task loaded with custom classloader is never up-to-date"() {
         file("input.txt").text = "data"
         buildFile << """
@@ -1110,7 +1112,7 @@ task generate(type: TransformerTask) {
         output.contains "The type of task ':customTask' was loaded with an unknown classloader (class 'CustomTask_Decorated')."
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache(because = "ClassNotFoundException: CustomTaskAction")
     def "task with custom action loaded with custom classloader is never up-to-date"() {
         file("input.txt").text = "data"
         buildFile << """
@@ -1159,7 +1161,6 @@ task generate(type: TransformerTask) {
     }
 
     @Issue("gradle/gradle#1168")
-    @ToBeFixedForInstantExecution
     def "task is not up-to-date when it has overlapping outputs"() {
         buildFile << """
             apply plugin: 'base'
@@ -1284,13 +1285,25 @@ task generate(type: TransformerTask) {
     }
 
     @ToBeImplemented("Private getters should be ignored")
-    @ToBeFixedForInstantExecution
     def "private inputs can be overridden in subclass"() {
+        executer.beforeExecute {
+            executer.expectDocumentedDeprecationWarning("Property 'myPrivateInput' is private and annotated with @Input. " +
+                "This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. " +
+                "Execution optimizations are disabled due to the failed validation. " +
+                "See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+        }
+
         given:
         buildFile << '''
-            class MyBaseTask extends DefaultTask {
+            abstract class MyBaseTask extends DefaultTask {
+
+                @Inject
+                abstract ProviderFactory getProviders()
+
                 @Input
-                private String getMyPrivateInput() { project.property('private') }
+                private String getMyPrivateInput() {
+                    return 'overridden private'
+                }
 
                 @OutputFile
                 File getOutput() {
@@ -1303,7 +1316,7 @@ task generate(type: TransformerTask) {
                 }
             }
 
-            class MyTask extends MyBaseTask {
+            abstract class MyTask extends MyBaseTask {
                 @Input
                 private String getMyPrivateInput() { 'only private' }
             }
@@ -1311,46 +1324,32 @@ task generate(type: TransformerTask) {
             task myTask(type: MyTask)
         '''
 
-        executer.expectDeprecationWarning()
-
         when:
-        run 'myTask', '-Pprivate=first'
-
+        run 'myTask'
         then:
         def outputFile = file('build/output.txt')
-        outputFile.text == 'first'
-        output.contains("Property 'myPrivateInput' is private and annotated with @Input. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0.")
-
-        executer.expectDeprecationWarning()
+        outputFile.text == 'overridden private'
 
         when:
-        run 'myTask', '-Pprivate=second'
-
+        run 'myTask', "--info"
         then:
-        skipped ':myTask'
-        outputFile.text == 'first'
-        output.contains("Property 'myPrivateInput' is private and annotated with @Input. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0.")
-
-        executer.expectDeprecationWarning()
-
-        when:
-        outputFile.delete()
-        run 'myTask', '-Pprivate=second'
-
-        then:
-        executedAndNotSkipped ':myTask'
-        outputFile.text == 'second'
-        output.contains("Property 'myPrivateInput' is private and annotated with @Input. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0.")
+        executedAndNotSkipped(":myTask")
+        outputContains("Validation failed.")
     }
 
     @ToBeImplemented("Private getters should be ignored")
-    @ToBeFixedForInstantExecution
     def "private inputs in superclass are respected"() {
         given:
         buildFile << '''
-            class MyBaseTask extends DefaultTask {
+            abstract class MyBaseTask extends DefaultTask {
+
+                @Inject
+                abstract ProviderFactory getProviders()
+
                 @Input
-                private String getMyPrivateInput() { project.property('private') }
+                private String getMyPrivateInput() {
+                    return providers.gradleProperty('private').get()
+                }
 
                 @OutputFile
                 File getOutput() {
@@ -1363,7 +1362,7 @@ task generate(type: TransformerTask) {
                 }
             }
 
-            class MyTask extends MyBaseTask {
+            abstract class MyTask extends MyBaseTask {
             }
 
             task myTask(type: MyTask)
@@ -1396,6 +1395,13 @@ task generate(type: TransformerTask) {
         def inputFile = file("input.txt")
         inputFile.text = "original"
 
+        executer.beforeExecute {
+            executer.expectDocumentedDeprecationWarning("Property 'classpath' annotated with @Internal should not be also annotated with @InputFiles, @Classpath. " +
+                "This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. " +
+                "Execution optimizations are disabled due to the failed validation. " +
+                "See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+        }
+
         buildFile << """
             class CustomTask extends DefaultTask {
                     @Internal
@@ -1423,24 +1429,21 @@ task generate(type: TransformerTask) {
         """
 
         when:
-        executer.expectDeprecationWarning()
         run "custom"
         then:
         executedAndNotSkipped ":custom"
-        outputContains("Property 'classpath' annotated with @Internal should not be also annotated with @InputFiles, @Classpath. This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0.")
 
         when:
-        executer.expectDeprecationWarning()
-        run "custom"
+        run "custom", "--info"
         then:
-        skipped ":custom"
+        executedAndNotSkipped ":custom"
+        outputContains("Validation failed.")
 
         when:
-        executer.expectDeprecationWarning()
         inputFile.text = "changed"
-        run "custom"
-
+        run "custom", "--info"
         then:
-        skipped ":custom"
+        executedAndNotSkipped ":custom"
+        outputContains("Validation failed.")
     }
 }

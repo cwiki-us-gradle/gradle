@@ -20,12 +20,21 @@ import kotlinx.metadata.Flag
 import kotlinx.metadata.KmTypeVisitor
 import kotlinx.metadata.flagsOf
 import kotlinx.metadata.jvm.JvmMethodSignature
-
 import org.gradle.api.Project
+import org.gradle.api.internal.file.FileCollectionFactory
+import org.gradle.api.internal.initialization.ClassLoaderScope
 import org.gradle.api.internal.project.ProjectInternal
-
 import org.gradle.internal.classpath.ClassPath
-
+import org.gradle.internal.classpath.DefaultClassPath
+import org.gradle.internal.execution.ExecutionEngine
+import org.gradle.internal.execution.UnitOfWork
+import org.gradle.internal.execution.UnitOfWork.IdentityKind.IDENTITY
+import org.gradle.internal.file.TreeType.DIRECTORY
+import org.gradle.internal.fingerprint.CurrentFileCollectionFingerprint
+import org.gradle.internal.hash.ClassLoaderHierarchyHasher
+import org.gradle.internal.hash.HashCode
+import org.gradle.internal.snapshot.ValueSnapshot
+import org.gradle.kotlin.dsl.cache.KotlinDslWorkspaceProvider
 import org.gradle.kotlin.dsl.codegen.fileHeader
 import org.gradle.kotlin.dsl.codegen.fileHeaderFor
 import org.gradle.kotlin.dsl.codegen.kotlinDslPackagePath
@@ -34,9 +43,7 @@ import org.gradle.kotlin.dsl.concurrent.IO
 import org.gradle.kotlin.dsl.concurrent.withAsynchronousIO
 import org.gradle.kotlin.dsl.concurrent.withSynchronousIO
 import org.gradle.kotlin.dsl.concurrent.writeFile
-
 import org.gradle.kotlin.dsl.provider.kotlinScriptClassPathProviderOf
-
 import org.gradle.kotlin.dsl.support.appendReproducibleNewLine
 import org.gradle.kotlin.dsl.support.bytecode.ALOAD
 import org.gradle.kotlin.dsl.support.bytecode.ARETURN
@@ -62,15 +69,13 @@ import org.gradle.kotlin.dsl.support.bytecode.publicStaticMethod
 import org.gradle.kotlin.dsl.support.bytecode.writeFileFacadeClassHeader
 import org.gradle.kotlin.dsl.support.bytecode.writePropertyOf
 import org.gradle.kotlin.dsl.support.useToRun
-
 import org.gradle.plugin.use.PluginDependenciesSpec
 import org.gradle.plugin.use.PluginDependencySpec
-
 import org.jetbrains.org.objectweb.asm.ClassWriter
 import org.jetbrains.org.objectweb.asm.MethodVisitor
-
 import java.io.BufferedWriter
 import java.io.File
+import javax.inject.Inject
 
 
 /**
@@ -79,24 +84,93 @@ import java.io.File
  *
  * The accessors provide content-assist for plugin ids and quick navigation to the plugin source code.
  */
-fun pluginSpecBuildersClassPath(project: Project): AccessorsClassPath = project.rootProject.let { rootProject ->
+class PluginAccessorClassPathGenerator @Inject constructor(
+    private val classLoaderHierarchyHasher: ClassLoaderHierarchyHasher,
+    private val fileCollectionFactory: FileCollectionFactory,
+    private val executionEngine: ExecutionEngine,
+    private val workspaceProvider: KotlinDslWorkspaceProvider
+) {
+    fun pluginSpecBuildersClassPath(project: Project): AccessorsClassPath = project.rootProject.let { rootProject ->
 
-    rootProject.getOrCreateProperty("gradleKotlinDsl.pluginAccessorsClassPath") {
-        val buildSrcClassLoaderScope = baseClassLoaderScopeOf(rootProject)
-        val cacheKeySpec = accessorsCacheKeySpecPrefix + buildSrcClassLoaderScope.exportClassLoader
-        cachedAccessorsClassPathFor(rootProject, cacheKeySpec) { srcDir, binDir ->
-            kotlinScriptClassPathProviderOf(rootProject).run {
-                withAsynchronousIO(rootProject) {
-                    buildPluginAccessorsFor(
-                        pluginDescriptorsClassPath = exportClassPathFromHierarchyOf(buildSrcClassLoaderScope),
-                        srcDir = srcDir,
-                        binDir = binDir
-                    )
-                }
-            }
+        rootProject.getOrCreateProperty("gradleKotlinDsl.pluginAccessorsClassPath") {
+            val buildSrcClassLoaderScope = baseClassLoaderScopeOf(rootProject)
+            val classLoaderHash = requireNotNull(classLoaderHierarchyHasher.getClassLoaderHash(buildSrcClassLoaderScope.exportClassLoader))
+            val work = GeneratePluginAccessors(
+                rootProject,
+                buildSrcClassLoaderScope,
+                classLoaderHash,
+                fileCollectionFactory,
+                workspaceProvider
+            )
+            val result = executionEngine.createRequest(work).execute()
+            result.executionResult.get().output as AccessorsClassPath
         }
     }
 }
+
+
+class GeneratePluginAccessors(
+    private val rootProject: Project,
+    private val buildSrcClassLoaderScope: ClassLoaderScope,
+    private val classLoaderHash: HashCode,
+    private val fileCollectionFactory: FileCollectionFactory,
+    private val workspaceProvider: KotlinDslWorkspaceProvider
+) : UnitOfWork {
+
+    companion object {
+        const val BUILD_SRC_CLASSLOADER_INPUT_PROPERTY = "buildSrcClassLoader"
+        const val SOURCES_OUTPUT_PROPERTY = "sources"
+        const val CLASSES_OUTPUT_PROPERTY = "classes"
+    }
+
+    override fun execute(executionRequest: UnitOfWork.ExecutionRequest): UnitOfWork.WorkOutput {
+        val workspace = executionRequest.workspace
+        kotlinScriptClassPathProviderOf(rootProject).run {
+            withAsynchronousIO(rootProject) {
+                buildPluginAccessorsFor(
+                    pluginDescriptorsClassPath = exportClassPathFromHierarchyOf(buildSrcClassLoaderScope),
+                    srcDir = getSourcesOutputDir(workspace),
+                    binDir = getClassesOutputDir(workspace)
+                )
+            }
+        }
+        return object : UnitOfWork.WorkOutput {
+            override fun getDidWork() = UnitOfWork.WorkResult.DID_WORK
+
+            override fun getOutput() = loadRestoredOutput(workspace)
+        }
+    }
+
+    override fun loadRestoredOutput(workspace: File) = AccessorsClassPath(
+        DefaultClassPath.of(getClassesOutputDir(workspace)),
+        DefaultClassPath.of(getSourcesOutputDir(workspace))
+    )
+
+    override fun identify(identityInputs: MutableMap<String, ValueSnapshot>, identityFileInputs: MutableMap<String, CurrentFileCollectionFingerprint>) = UnitOfWork.Identity { classLoaderHash.toString() }
+
+    override fun getWorkspaceProvider() = workspaceProvider.accessors
+
+    override fun getDisplayName(): String = "Kotlin DSL plugin accessors for classpath '$classLoaderHash'"
+
+    override fun visitInputs(visitor: UnitOfWork.InputVisitor) {
+        visitor.visitInputProperty(BUILD_SRC_CLASSLOADER_INPUT_PROPERTY, IDENTITY) { classLoaderHash }
+    }
+
+    override fun visitOutputs(workspace: File, visitor: UnitOfWork.OutputVisitor) {
+        val sourcesOutputDir = getSourcesOutputDir(workspace)
+        val classesOutputDir = getClassesOutputDir(workspace)
+        visitor.visitOutputProperty(SOURCES_OUTPUT_PROPERTY, DIRECTORY, sourcesOutputDir, fileCollectionFactory.fixed(sourcesOutputDir))
+        visitor.visitOutputProperty(CLASSES_OUTPUT_PROPERTY, DIRECTORY, classesOutputDir, fileCollectionFactory.fixed(classesOutputDir))
+    }
+}
+
+
+private
+fun getClassesOutputDir(workspace: File) = File(workspace, "classes")
+
+
+private
+fun getSourcesOutputDir(workspace: File): File = File(workspace, "sources")
 
 
 fun writeSourceCodeForPluginSpecBuildersFor(
@@ -145,7 +219,7 @@ fun IO.buildPluginAccessorsFor(
     )
 
     val properties = ArrayList<Pair<PluginAccessor, JvmMethodSignature>>(accessorList.size)
-    val header = writeFileFacadeClassHeader {
+    val header = writeFileFacadeClassHeader(moduleName) {
         accessorList.forEach { accessor ->
 
             if (accessor is PluginAccessor.ForGroup) {
@@ -229,10 +303,12 @@ fun BufferedWriter.appendSourceCodeForPluginAccessors(
     format: AccessorFormat
 ) {
 
-    appendReproducibleNewLine("""
+    appendReproducibleNewLine(
+        """
         import ${PluginDependenciesSpec::class.qualifiedName}
         import ${PluginDependencySpec::class.qualifiedName}
-    """.replaceIndent())
+        """.replaceIndent()
+    )
 
     defaultPackageTypesIn(accessors).forEach {
         appendReproducibleNewLine("import $it")
@@ -245,29 +321,38 @@ fun BufferedWriter.appendSourceCodeForPluginAccessors(
         val pluginsRef = pluginDependenciesSpecOf(extendedType)
         when (this) {
             is PluginAccessor.ForPlugin -> {
-                appendReproducibleNewLine(format("""
-                    /**
-                     * The `$id` plugin implemented by [$implementationClass].
-                     */
-                    val `$extendedType`.`${extension.name}`: PluginDependencySpec
-                        get() = $pluginsRef.id("$id")
-                """))
+                appendReproducibleNewLine(
+                    format(
+                        """
+                        /**
+                         * The `$id` plugin implemented by [$implementationClass].
+                         */
+                        val `$extendedType`.`${extension.name}`: PluginDependencySpec
+                            get() = $pluginsRef.id("$id")
+                        """
+                    )
+                )
             }
             is PluginAccessor.ForGroup -> {
                 val groupType = extension.returnType.sourceName
-                appendReproducibleNewLine(format("""
-                    /**
-                     * The `$id` plugin group.
-                     */
-                    class `$groupType`(internal val plugins: PluginDependenciesSpec)
+                appendReproducibleNewLine(
+                    format(
+                        """
+                        /**
+                         * The `$id` plugin group.
+                         */
+                        @org.gradle.api.Generated
+                        class `$groupType`(internal val plugins: PluginDependenciesSpec)
 
 
-                    /**
-                     * Plugin ids starting with `$id`.
-                     */
-                    val `$extendedType`.`${extension.name}`: `$groupType`
-                        get() = `$groupType`($pluginsRef)
-                """))
+                        /**
+                         * Plugin ids starting with `$id`.
+                         */
+                        val `$extendedType`.`${extension.name}`: `$groupType`
+                            get() = `$groupType`($pluginsRef)
+                        """
+                    )
+                )
             }
         }
     }

@@ -17,6 +17,7 @@
 package org.gradle.kotlin.dsl.execution
 
 import org.gradle.api.Project
+import org.gradle.api.internal.file.TemporaryFileProvider
 import org.gradle.internal.classpath.ClassPath
 import org.gradle.internal.hash.HashCode
 import org.gradle.internal.hash.Hashing
@@ -34,7 +35,6 @@ import org.gradle.kotlin.dsl.support.CompiledKotlinSettingsPluginManagementBlock
 import org.gradle.kotlin.dsl.support.CompiledKotlinSettingsScript
 import org.gradle.kotlin.dsl.support.ImplicitReceiver
 import org.gradle.kotlin.dsl.support.KotlinScriptHost
-import org.gradle.kotlin.dsl.support.bytecode.ACONST_NULL
 import org.gradle.kotlin.dsl.support.bytecode.ALOAD
 import org.gradle.kotlin.dsl.support.bytecode.ARETURN
 import org.gradle.kotlin.dsl.support.bytecode.ASTORE
@@ -87,6 +87,7 @@ class ResidualProgramCompiler(
     private val programTarget: ProgramTarget,
     private val implicitImports: List<String> = emptyList(),
     private val logger: Logger = interpreterLogger,
+    private val temporaryFileProvider: TemporaryFileProvider,
     private val compileBuildOperationRunner: CompileBuildOperationRunner = { _, _, action -> action() },
     private val pluginAccessorsClassPath: ClassPath = ClassPath.EMPTY,
     private val packageName: String? = null
@@ -151,7 +152,7 @@ class ResidualProgramCompiler(
 
     private
     fun mightBeLargerThan64KB(secondStageScriptText: String) =
-    // We use a simple heuristic to avoid converting the string to bytes
+        // We use a simple heuristic to avoid converting the string to bytes
         // if all code points were in UTF32, 16K code points would require 64K bytes
         secondStageScriptText.length >= 16 * 1024
 
@@ -298,7 +299,8 @@ class ResidualProgramCompiler(
         GETSTATIC(
             MultiPluginRequests::class.internalName,
             "EMPTY",
-            "Lorg/gradle/plugin/management/internal/PluginRequests;")
+            "Lorg/gradle/plugin/management/internal/PluginRequests;"
+        )
         invokeApplyPluginsTo()
     }
 
@@ -342,7 +344,8 @@ class ResidualProgramCompiler(
             INVOKESPECIAL(
                 precompiledPluginsBlock,
                 "<init>",
-                "(Lorg/gradle/plugin/use/PluginDependenciesSpec;)V")
+                "(Lorg/gradle/plugin/use/PluginDependenciesSpec;)V"
+            )
 
             emitApplyPluginsTo()
         }
@@ -359,11 +362,13 @@ class ResidualProgramCompiler(
         INVOKEVIRTUAL(
             KotlinScriptHost::class.internalName,
             "getScriptSource",
-            "()Lorg/gradle/groovy/scripts/ScriptSource;")
+            "()Lorg/gradle/groovy/scripts/ScriptSource;"
+        )
         INVOKESPECIAL(
             pluginRequestCollectorType,
             "<init>",
-            "(Lorg/gradle/groovy/scripts/ScriptSource;)V")
+            "(Lorg/gradle/groovy/scripts/ScriptSource;)V"
+        )
         ASTORE(Vars.PluginRequestCollector)
     }
 
@@ -373,7 +378,8 @@ class ResidualProgramCompiler(
         INVOKEVIRTUAL(
             pluginRequestCollectorType,
             "getPluginRequests",
-            "()Lorg/gradle/plugin/management/internal/PluginRequests;")
+            "()Lorg/gradle/plugin/management/internal/PluginRequests;"
+        )
     }
 
     private
@@ -383,7 +389,8 @@ class ResidualProgramCompiler(
         INVOKEVIRTUAL(
             pluginRequestCollectorType,
             "createSpec",
-            "(I)Lorg/gradle/plugin/use/PluginDependenciesSpec;")
+            "(I)Lorg/gradle/plugin/use/PluginDependenciesSpec;"
+        )
     }
 
     private
@@ -393,7 +400,8 @@ class ResidualProgramCompiler(
     fun MethodVisitor.invokeApplyPluginsTo() {
         invokeHost(
             "applyPluginsTo",
-            "(Lorg/gradle/kotlin/dsl/support/KotlinScriptHost;Lorg/gradle/plugin/management/internal/PluginRequests;)V")
+            "(Lorg/gradle/kotlin/dsl/support/KotlinScriptHost;Lorg/gradle/plugin/management/internal/PluginRequests;)V"
+        )
     }
 
     private
@@ -427,7 +435,7 @@ class ResidualProgramCompiler(
         LDC(programTarget.name + "/" + programKind.name + "/stage2")
         // Move HashCode value to a static field so it's cached across invocations
         loadHashCode(originalSourceHash)
-        if (requiresAccessors()) emitAccessorsClassPathForScriptHost() else ACONST_NULL()
+        if (requiresAccessors()) emitAccessorsClassPathForScriptHost() else GETSTATIC(ClassPath::EMPTY)
         invokeHost(
             ExecutableProgram.Host::evaluateSecondStageOf.name,
             "(" +
@@ -508,7 +516,8 @@ class ResidualProgramCompiler(
         INVOKESTATIC(
             HashCode::class.internalName,
             "fromBytes",
-            "([B)Lorg/gradle/internal/hash/HashCode;")
+            "([B)Lorg/gradle/internal/hash/HashCode;"
+        )
     }
 
     private
@@ -546,7 +555,8 @@ class ResidualProgramCompiler(
             catchBlock = {
 
                 emitOnScriptException(precompiledScriptClass)
-            })
+            }
+        )
     }
 
     private
@@ -559,7 +569,8 @@ class ResidualProgramCompiler(
         ALOAD(Vars.ScriptHost)
         invokeHost(
             "handleScriptException",
-            "(Ljava/lang/Throwable;Ljava/lang/Class;Lorg/gradle/kotlin/dsl/support/KotlinScriptHost;)V")
+            "(Ljava/lang/Throwable;Ljava/lang/Class;Lorg/gradle/kotlin/dsl/support/KotlinScriptHost;)V"
+        )
     }
 
     private
@@ -603,11 +614,13 @@ class ResidualProgramCompiler(
 
     private
     fun program(superName: InternalName, classBody: ClassWriter.() -> Unit = {}) {
-        writeFile("Program.class",
+        writeFile(
+            "Program.class",
             publicClass(InternalName("Program"), superName, null) {
                 publicDefaultConstructor(superName)
                 classBody()
-            })
+            }
+        )
     }
 
     private
@@ -625,7 +638,7 @@ class ResidualProgramCompiler(
         scriptDefinition: ScriptDefinition,
         compileClassPath: ClassPath = classPath
     ): InternalName =
-        withTemporaryScriptFileFor(source.path, source.text) { scriptFile ->
+        temporaryFileProvider.withTemporaryScriptFileFor(source.path, source.text) { scriptFile ->
             val originalScriptPath = source.path
             compileScript(
                 scriptFile,
@@ -682,7 +695,8 @@ class ResidualProgramCompiler(
                 ProgramTarget.Project -> CompiledKotlinBuildscriptBlock::class
                 ProgramTarget.Settings -> CompiledKotlinSettingsBuildscriptBlock::class
                 ProgramTarget.Gradle -> CompiledKotlinInitscriptBlock::class
-            })
+            }
+        )
 
     private
     val stage2ScriptDefinition
@@ -691,7 +705,8 @@ class ResidualProgramCompiler(
                 ProgramTarget.Project -> CompiledKotlinBuildScript::class
                 ProgramTarget.Settings -> CompiledKotlinSettingsScript::class
                 ProgramTarget.Gradle -> CompiledKotlinInitScript::class
-            })
+            }
+        )
 
     private
     val pluginsScriptDefinition

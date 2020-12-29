@@ -33,7 +33,6 @@ import org.gradle.internal.logging.ConsoleRenderer;
 import org.gradle.internal.logging.events.OutputEventListener;
 import org.gradle.internal.nativeintegration.ProcessEnvironment;
 import org.gradle.internal.remote.internal.Connection;
-import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.launcher.daemon.context.DaemonContext;
 import org.gradle.launcher.daemon.diagnostics.DaemonDiagnostics;
 import org.gradle.launcher.daemon.protocol.Build;
@@ -96,7 +95,7 @@ import java.util.UUID;
  * <p>
  * If the daemon returns a {@code null} message before returning a {@link Result} object, it has terminated unexpectedly for some reason.
  */
-public class DaemonClient implements BuildActionExecuter<BuildActionParameters> {
+public class DaemonClient implements BuildActionExecuter<BuildActionParameters, BuildRequestContext> {
     private static final Logger LOGGER = Logging.getLogger(DaemonClient.class);
     private final DaemonConnector connector;
     private final OutputEventListener outputEventListener;
@@ -133,7 +132,7 @@ public class DaemonClient implements BuildActionExecuter<BuildActionParameters> 
      * @param action The action
      */
     @Override
-    public BuildActionResult execute(BuildAction action, BuildRequestContext requestContext, BuildActionParameters parameters, ServiceRegistry contextServices) {
+    public BuildActionResult execute(BuildAction action, BuildActionParameters parameters, BuildRequestContext requestContext) {
         UUID buildId = idGenerator.generateId();
         List<DaemonInitialConnectException> accumulatedExceptions = Lists.newArrayList();
 
@@ -198,7 +197,7 @@ public class DaemonClient implements BuildActionExecuter<BuildActionParameters> 
         } else if (result instanceof DaemonUnavailable) {
             throw new DaemonInitialConnectException("The daemon we connected to was unavailable: " + ((DaemonUnavailable) result).getReason());
         } else if (result instanceof Result) {
-            return (BuildActionResult)((Result) result).getValue();
+            return (BuildActionResult) ((Result) result).getValue();
         } else {
             throw invalidResponse(result, build, diagnostics);
         }
@@ -250,18 +249,28 @@ public class DaemonClient implements BuildActionExecuter<BuildActionParameters> 
         throw new DaemonDisappearedException();
     }
 
+    /**
+     * <a href="https://stackoverflow.com/a/5154619/104894">See why this logic exists in this SO post.</a>
+     */
     private Optional<File> findCrashLogFile(Build build, DaemonDiagnostics diagnostics) {
         String crashLogFileName = "hs_err_pid" + diagnostics.getPid() + ".log";
         List<File> candidates = new ArrayList<>();
         candidates.add(new File(build.getParameters().getCurrentDir(), crashLogFileName));
         candidates.add(new File(diagnostics.getDaemonLog().getParent(), crashLogFileName));
-        String javaTmpDir = SystemProperties.getInstance().getJavaIoTmpDir();
-        if (javaTmpDir != null && !javaTmpDir.isEmpty()) {
-            candidates.add(new File(javaTmpDir, crashLogFileName));
-        }
+        findCrashLogFile(crashLogFileName).ifPresent(candidates::add);
+
         return candidates.stream()
             .filter(File::isFile)
             .findFirst();
+    }
+
+    private static Optional<File> findCrashLogFile(String crashLogFileName) {
+        // This use case for the JavaIOTmpDir is allowed since we are looking for the crash log file.
+        @SuppressWarnings("deprecation") String javaTmpDir = SystemProperties.getInstance().getJavaIoTmpDir();
+        if (javaTmpDir != null && !javaTmpDir.isEmpty()) {
+            return Optional.of(new File(javaTmpDir, crashLogFileName));
+        }
+        return Optional.empty();
     }
 
     private IllegalStateException invalidResponse(Object response, Build command, DaemonDiagnostics diagnostics) {

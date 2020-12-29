@@ -18,7 +18,7 @@ package org.gradle.integtests.samples.bestpractices
 
 import org.gradle.integtests.fixtures.AbstractSampleIntegrationTest
 import org.gradle.integtests.fixtures.Sample
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.integtests.fixtures.UsesSample
 import org.junit.Rule
 import spock.lang.Unroll
@@ -29,7 +29,7 @@ class SamplesAuthoringMaintainableBuildsIntegrationTest extends AbstractSampleIn
     Sample sample = new Sample(testDirectoryProvider)
 
     @Unroll
-    @UsesSample('userguide/bestPractices/taskDefinition')
+    @UsesSample('bestPractices/taskDefinition')
     def "can execute tasks with #dsl dsl"() {
         executer.inDirectory(sample.dir.file(dsl))
 
@@ -44,8 +44,7 @@ class SamplesAuthoringMaintainableBuildsIntegrationTest extends AbstractSampleIn
     }
 
     @Unroll
-    @UsesSample('userguide/bestPractices/taskGroupDescription')
-    @ToBeFixedForInstantExecution
+    @UsesSample('bestPractices/taskGroupDescription')
     def "can render a task's group and description in tasks report with #dsl dsl"() {
         executer.inDirectory(sample.dir.file(dsl))
 
@@ -62,10 +61,10 @@ generateDocs - Generates the HTML documentation for this project.""")
     }
 
     @Unroll
-    @UsesSample('userguide/bestPractices/logicDuringConfiguration')
-    @ToBeFixedForInstantExecution(iterationMatchers = ".*kotlin dsl.*")
+    @UsesSample('bestPractices/logicDuringConfiguration-do')
+    @ToBeFixedForConfigurationCache(iterationMatchers = ".*kotlin dsl.*")
     def "can execute logic during execution phase with #dsl dsl"() {
-        executer.inDirectory(sample.dir.file("$subDirName/$dsl"))
+        executer.inDirectory(sample.dir.file(dsl))
 
         when:
         succeeds 'printArtifactNames'
@@ -74,15 +73,13 @@ generateDocs - Generates the HTML documentation for this project.""")
         outputContains('log4j-1.2.17.jar')
 
         where:
-        dsl      | subDirName
-        'groovy' | 'do'
-        'kotlin' | 'do'
+        dsl << ['groovy', 'kotlin']
     }
 
     @Unroll
-    @UsesSample('userguide/bestPractices/logicDuringConfiguration')
+    @UsesSample('bestPractices/logicDuringConfiguration-dont')
     def "throw exception when executing logic during configuration phrase with #dsl dsl"() {
-        executer.inDirectory(sample.dir.file("$subDirName/$dsl"))
+        executer.inDirectory(sample.dir.file(dsl))
 
         when:
         fails 'printArtifactNames'
@@ -91,15 +88,13 @@ generateDocs - Generates the HTML documentation for this project.""")
         failureCauseContains("You shouldn't resolve configurations during configuration phase")
 
         where:
-        dsl      | subDirName
-        'groovy' | 'dont'
-        'kotlin' | 'dont'
+        dsl << ['groovy', 'kotlin']
     }
 
     @Unroll
-    @UsesSample('userguide/bestPractices/conditionalLogic')
-    def "can execute conditional logic for #exampleName with #dsl dsl"() {
-        executer.inDirectory(sample.dir.file("$subDirName/$dsl"))
+    @UsesSample('bestPractices/conditionalLogic-do')
+    def "can execute conditional logic for positive example with #dsl dsl"() {
+        executer.inDirectory(sample.dir.file(dsl))
         executer.withArgument('-PreleaseEngineer=true')
 
         when:
@@ -109,10 +104,22 @@ generateDocs - Generates the HTML documentation for this project.""")
         outputContains('Releasing to production...')
 
         where:
-        dsl      | subDirName | exampleName
-        'groovy' | 'dont'     | 'negative example'
-        'kotlin' | 'dont'     | 'negative example'
-        'groovy' | 'do'       | 'positive example'
-        'kotlin' | 'do'       | 'positive example'
+        dsl << ['groovy', 'kotlin']
+    }
+
+    @Unroll
+    @UsesSample('bestPractices/conditionalLogic-dont')
+    def "can 2 execute conditional logic for negative example with #dsl dsl"() {
+        executer.inDirectory(sample.dir.file(dsl))
+        executer.withArgument('-PreleaseEngineer=true')
+
+        when:
+        succeeds 'release'
+
+        then:
+        outputContains('Releasing to production...')
+
+        where:
+        dsl << ['groovy', 'kotlin']
     }
 }
