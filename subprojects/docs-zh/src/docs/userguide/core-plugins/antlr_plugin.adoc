@@ -26,8 +26,8 @@ To use the ANTLR plugin, include the following in your build script:
 
 .Using the ANTLR plugin
 ====
-include::sample[dir="snippets/antlr/groovy",files="build.gradle[tags=use-plugin]"]
-include::sample[dir="snippets/antlr/kotlin",files="build.gradle.kts[tags=use-plugin]"]
+include::sample[dir="snippets/antlr/useAntlrPlugin/groovy",files="build.gradle[tags=use-plugin]"]
+include::sample[dir="snippets/antlr/useAntlrPlugin/kotlin",files="build.gradle.kts[tags=use-plugin]"]
 ====
 
 [[sec:antlr_tasks]]
@@ -82,8 +82,8 @@ The ANTLR plugin adds an `antlr` dependency configuration which provides the ANT
 
 .Declare ANTLR version
 ====
-include::sample[dir="snippets/antlr/groovy",files="build.gradle[tags=declare-dependency]"]
-include::sample[dir="snippets/antlr/kotlin",files="build.gradle.kts[tags=declare-dependency]"]
+include::sample[dir="snippets/antlr/useAntlrPlugin/groovy",files="build.gradle[tags=declare-dependency]"]
+include::sample[dir="snippets/antlr/useAntlrPlugin/kotlin",files="build.gradle.kts[tags=declare-dependency]"]
 ====
 
 If no dependency is declared, `antlr:antlr:2.7.7` will be used as the default. To use a different ANTLR version add the appropriate dependency to the `antlr` dependency configuration as above.
@@ -91,15 +91,15 @@ If no dependency is declared, `antlr:antlr:2.7.7` will be used as the default. T
 [[sec:antlr_convention_properties]]
 == Convention properties
 
-The ANTLR plugin does not add any convention properties.
+The ANTLR plugin adds one convention property.
+
+`antlr` — link:{groovyDslPath}/org.gradle.api.file.SourceDirectorySet.html[SourceDirectorySet]::
+The ANTLR grammar files of this source set. Contains all `.g` or `.g4` files found in the ANTLR source directories, and excludes all other types of files. _Default value is non-null._
 
 [[sec:antlr_source_set_properties]]
 == Source set properties
 
 The ANTLR plugin adds the following properties to each source set in the project.
-
-`antlr` — link:{groovyDslPath}/org.gradle.api.file.SourceDirectorySet.html[SourceDirectorySet]::
-The ANTLR grammar files of this source set. Contains all `.g` or `.g4` files found in the ANTLR source directories, and excludes all other types of files. _Default value is non-null._
 
 `antlr.srcDirs` — `Set&lt;File&gt;`::
 The source directories containing the ANTLR grammar files of this source set.
@@ -113,7 +113,7 @@ The ANTLR tool is executed in a forked process. This allows fine grained control
 
 .Setting custom max heap size and extra arguments for ANTLR
 ====
-include::sample[dir="snippets/antlr/groovy",files="build.gradle[tags=generate-grammar-settings]"]
-include::sample[dir="snippets/antlr/kotlin",files="build.gradle.kts[tags=generate-grammar-settings]"]
+include::sample[dir="snippets/antlr/useAntlrPlugin/groovy",files="build.gradle[tags=generate-grammar-settings]"]
+include::sample[dir="snippets/antlr/useAntlrPlugin/kotlin",files="build.gradle.kts[tags=generate-grammar-settings]"]
 ====
 
