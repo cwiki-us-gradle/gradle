@@ -22,8 +22,8 @@ import org.gradle.api.internal.tasks.properties.CacheableOutputFilePropertySpec;
 import org.gradle.api.internal.tasks.properties.OutputFilePropertySpec;
 import org.gradle.internal.execution.caching.CachingDisabledReason;
 import org.gradle.internal.execution.caching.CachingDisabledReasonCategory;
+import org.gradle.internal.execution.history.OverlappingOutputs;
 import org.gradle.internal.file.RelativeFilePathResolver;
-import org.gradle.internal.fingerprint.overlap.OverlappingOutputs;
 
 import javax.annotation.Nullable;
 import java.util.Collection;
@@ -57,9 +57,9 @@ public class DefaultTaskCacheabilityResolver implements TaskCacheabilityResolver
         }
 
         if (overlappingOutputs != null) {
-            String relativePath = relativeFilePathResolver.resolveAsRelativePath(overlappingOutputs.getOverlappedFilePath());
+            String relativePath = relativeFilePathResolver.resolveForDisplay(overlappingOutputs.getOverlappedFilePath());
             return Optional.of(new CachingDisabledReason(CachingDisabledReasonCategory.OVERLAPPING_OUTPUTS,
-                "Gradle does not know how file '" + relativePath + "' was created (output property '" + overlappingOutputs.getPropertyName() + "'). Task output caching requires exclusive access to output paths to guarantee correctness."));
+                "Gradle does not know how file '" + relativePath + "' was created (output property '" + overlappingOutputs.getPropertyName() + "'). Task output caching requires exclusive access to output paths to guarantee correctness (i.e. multiple tasks are not allowed to produce output in the same location)."));
         }
 
         for (OutputFilePropertySpec spec : outputFileProperties) {

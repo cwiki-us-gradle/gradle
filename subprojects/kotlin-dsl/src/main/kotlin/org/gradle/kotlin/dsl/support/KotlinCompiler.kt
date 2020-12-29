@@ -16,14 +16,16 @@
 
 package org.gradle.kotlin.dsl.support
 
+import org.gradle.internal.SystemProperties
 import org.gradle.internal.io.NullOutputStream
 
 import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
+import org.jetbrains.kotlin.cli.common.KOTLIN_COMPILER_ENVIRONMENT_KEEPALIVE_PROPERTY
 
 import org.jetbrains.kotlin.cli.common.config.addKotlinSourceRoot
 import org.jetbrains.kotlin.cli.common.config.addKotlinSourceRoots
 
-import org.jetbrains.kotlin.cli.common.messages.CompilerMessageLocation
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.cli.common.messages.MessageUtil
@@ -49,7 +51,6 @@ import org.jetbrains.kotlin.config.JVMConfigurationKeys.JVM_TARGET
 import org.jetbrains.kotlin.config.JVMConfigurationKeys.OUTPUT_DIRECTORY
 import org.jetbrains.kotlin.config.JVMConfigurationKeys.RETAIN_OUTPUT_IN_MEMORY
 import org.jetbrains.kotlin.config.JvmTarget.JVM_1_8
-import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.config.LanguageVersion
 import org.jetbrains.kotlin.config.LanguageVersionSettingsImpl
 
@@ -166,6 +167,7 @@ fun compileKotlinScriptModuleTo(
                 scriptFiles.forEach { addKotlinSourceRoot(it) }
                 classPath.forEach { addJvmClasspathRoot(it) }
             }
+
             val environment = kotlinCoreEnvironmentFor(configuration).apply {
                 HasImplicitReceiverCompilerPlugin.apply(project)
             }
@@ -256,7 +258,8 @@ inline fun <T> withCompilationExceptionHandler(messageCollector: LoggingMessageC
         messageCollector.report(
             CompilerMessageSeverity.EXCEPTION,
             ex.localizedMessage,
-            MessageUtil.psiElementToMessageLocation(ex.element))
+            MessageUtil.psiElementToMessageLocation(ex.element)
+        )
 
         throw IllegalStateException("Internal compiler error: ${ex.localizedMessage}", ex)
     }
@@ -334,14 +337,8 @@ fun compilerConfigurationFor(messageCollector: MessageCollector): CompilerConfig
 
 private
 val gradleKotlinDslLanguageVersionSettings = LanguageVersionSettingsImpl(
-    languageVersion = LanguageVersion.KOTLIN_1_3,
-    apiVersion = ApiVersion.KOTLIN_1_3,
-    specificFeatures = mapOf(
-        LanguageFeature.NewInference to LanguageFeature.State.ENABLED,
-        LanguageFeature.SamConversionForKotlinFunctions to LanguageFeature.State.ENABLED,
-        LanguageFeature.SamConversionPerArgument to LanguageFeature.State.ENABLED,
-        LanguageFeature.ReferencesToSyntheticJavaProperties to LanguageFeature.State.ENABLED
-    ),
+    languageVersion = LanguageVersion.KOTLIN_1_4,
+    apiVersion = ApiVersion.KOTLIN_1_4,
     analysisFlags = mapOf(
         AnalysisFlags.skipMetadataVersionCheck to true
     )
@@ -372,7 +369,16 @@ fun CompilerConfiguration.addScriptDefinition(scriptDef: ScriptDefinition) {
 private
 fun Disposable.kotlinCoreEnvironmentFor(configuration: CompilerConfiguration): KotlinCoreEnvironment {
     org.jetbrains.kotlin.cli.common.environment.setIdeaIoUseFallback()
-    return KotlinCoreEnvironment.createForProduction(this, configuration, EnvironmentConfigFiles.JVM_CONFIG_FILES)
+    return SystemProperties.getInstance().withSystemProperty(
+        KOTLIN_COMPILER_ENVIRONMENT_KEEPALIVE_PROPERTY,
+        "true"
+    ) {
+        KotlinCoreEnvironment.createForProduction(
+            this,
+            configuration,
+            EnvironmentConfigFiles.JVM_CONFIG_FILES
+        )
+    }
 }
 
 
@@ -382,7 +388,7 @@ fun messageCollectorFor(log: Logger, pathTranslation: (String) -> String = { it 
 
 
 internal
-data class ScriptCompilationError(val message: String, val location: CompilerMessageLocation?)
+data class ScriptCompilationError(val message: String, val location: CompilerMessageSourceLocation?)
 
 
 internal
@@ -399,7 +405,8 @@ data class ScriptCompilationException(val errors: List<ScriptCompilationError>) 
         get() = (
             listOf("Script compilation $errorPlural:")
                 + indentedErrorMessages()
-                + "${errors.size} $errorPlural")
+                + "${errors.size} $errorPlural"
+            )
             .joinToString("\n\n")
 
     private
@@ -413,16 +420,17 @@ data class ScriptCompilationException(val errors: List<ScriptCompilationError>) 
         } ?: error.message
 
     private
-    fun errorAt(location: CompilerMessageLocation, message: String): String {
+    fun errorAt(location: CompilerMessageSourceLocation, message: String): String {
         val columnIndent = " ".repeat(5 + maxLineNumberStringLength + 1 + location.column)
         return "Line ${lineNumber(location)}: ${location.lineContent}\n" +
             "^ $message".lines().joinToString(
                 prefix = columnIndent,
-                separator = "\n$columnIndent  $indent")
+                separator = "\n$columnIndent  $indent"
+            )
     }
 
     private
-    fun lineNumber(location: CompilerMessageLocation) =
+    fun lineNumber(location: CompilerMessageSourceLocation) =
         location.line.toString().padStart(maxLineNumberStringLength, '0')
 
     private
@@ -434,7 +442,7 @@ data class ScriptCompilationException(val errors: List<ScriptCompilationError>) 
 
     private
     val maxLineNumberStringLength: Int by lazy {
-        errors.mapNotNull { it.location?.line }.max().toString().length
+        errors.mapNotNull { it.location?.line }.maxOrNull()?.toString()?.length ?: 0
     }
 }
 
@@ -455,7 +463,7 @@ class LoggingMessageCollector(
 
     override fun clear() = errors.clear()
 
-    override fun report(severity: CompilerMessageSeverity, message: String, location: CompilerMessageLocation?) {
+    override fun report(severity: CompilerMessageSeverity, message: String, location: CompilerMessageSourceLocation?) {
 
         fun msg() =
             location?.run {

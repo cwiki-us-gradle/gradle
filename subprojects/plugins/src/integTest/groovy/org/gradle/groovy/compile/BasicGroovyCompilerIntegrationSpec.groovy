@@ -21,7 +21,6 @@ import org.gradle.integtests.fixtures.FeaturePreviewsFixture
 import org.gradle.integtests.fixtures.MultiVersionIntegrationSpec
 import org.gradle.integtests.fixtures.TargetCoverage
 import org.gradle.integtests.fixtures.TestResources
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.executer.ExecutionFailure
 import org.gradle.integtests.fixtures.executer.ExecutionResult
 import org.gradle.test.fixtures.file.TestFile
@@ -315,7 +314,6 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
         !groovyClassFile('Java$$Generated.class').exists()
     }
 
-    @ToBeFixedForInstantExecution
     def "groovyToolClassesAreNotVisible"() {
         Assume.assumeFalse(versionLowerThan("2.0"))
 
@@ -370,6 +368,7 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
 
     def "useConfigurationScript"() {
         Assume.assumeFalse(versionLowerThan("2.1"))
+        Assume.assumeFalse('Test must run with 9+, cannot guarantee that with a lower toolchain', getClass().name.contains("LowerToolchain"))
 
         expect:
         fails("compileGroovy")
@@ -394,6 +393,8 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
     // JavaFx was removed in JDK 10
     @Requires(TestPrecondition.JDK9_OR_EARLIER)
     def "compileJavaFx8Code"() {
+        Assume.assumeFalse("Setup invalid with toolchains", getClass().name.contains('Toolchain') && !getClass().name.contains('SameToolchain'))
+
         expect:
         succeeds("compileGroovy")
     }
@@ -580,7 +581,10 @@ ${compilerConfiguration()}
 
     def writeAnnotationProcessorProject() {
         file("processor").create {
-            file("build.gradle") << "apply plugin: 'java'"
+            file("build.gradle") << """apply plugin: 'java'
+
+${annotationProcessorExtraSetup()}
+"""
             "src/main" {
                 file("resources/META-INF/services/javax.annotation.processing.Processor") << "com.test.SimpleAnnotationProcessor"
                 "java/com/test/" {
@@ -665,6 +669,10 @@ ${compilerConfiguration()}
                 }
             }
         }
+    }
+
+    String annotationProcessorExtraSetup() {
+        ""
     }
 
     String checkCompileOutput(String errorMessage) {

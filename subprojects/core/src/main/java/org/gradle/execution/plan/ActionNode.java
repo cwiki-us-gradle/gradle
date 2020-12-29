@@ -17,8 +17,9 @@
 package org.gradle.execution.plan;
 
 import org.gradle.api.Action;
-import org.gradle.api.Project;
+import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.internal.tasks.NodeExecutionContext;
+import org.gradle.api.internal.tasks.TaskDependencyContainer;
 import org.gradle.api.internal.tasks.WorkNodeAction;
 import org.gradle.internal.resources.ResourceLock;
 
@@ -29,9 +30,17 @@ import java.util.Set;
 
 public class ActionNode extends Node implements SelfExecutingNode {
     private final WorkNodeAction action;
+    private final ProjectInternal owningProject;
+    private final ProjectInternal projectToLock;
 
     public ActionNode(WorkNodeAction action) {
         this.action = action;
+        this.owningProject = (ProjectInternal) action.getOwningProject();
+        if (owningProject != null && action.usesMutableProjectState()) {
+            this.projectToLock = owningProject;
+        } else {
+            this.projectToLock = null;
+        }
     }
 
     @Nullable
@@ -50,6 +59,11 @@ public class ActionNode extends Node implements SelfExecutingNode {
 
     @Override
     public void resolveDependencies(TaskDependencyResolver dependencyResolver, Action<Node> processHardSuccessor) {
+        TaskDependencyContainer dependencies = action::visitDependencies;
+        for (Node node : dependencyResolver.resolveDependenciesFor(null, dependencies)) {
+            addDependencySuccessor(node);
+            processHardSuccessor.execute(node);
+        }
     }
 
     @Override
@@ -88,14 +102,17 @@ public class ActionNode extends Node implements SelfExecutingNode {
 
     @Nullable
     @Override
-    public Project getProjectToLock() {
-        return action.getProject();
+    public ResourceLock getProjectToLock() {
+        if (projectToLock != null) {
+            return projectToLock.getMutationState().getAccessLock();
+        }
+        return null;
     }
 
     @Nullable
     @Override
-    public Project getOwningProject() {
-        return action.getProject();
+    public ProjectInternal getOwningProject() {
+        return owningProject;
     }
 
     @Override

@@ -17,6 +17,7 @@ package org.gradle.language.nativeplatform.internal.incremental
 
 import org.gradle.api.internal.file.TestFiles
 import org.gradle.cache.PersistentStateCache
+import org.gradle.internal.file.FileMetadata.AccessType
 import org.gradle.internal.hash.HashCode
 import org.gradle.internal.operations.TestBuildOperationExecutor
 import org.gradle.internal.snapshot.MissingFileSnapshot
@@ -39,8 +40,9 @@ class IncrementalCompileProcessorTest extends Specification {
     def includesParser = Mock(SourceIncludesParser)
     def dependencyResolver = new DummyResolver()
     def virtualFileSystem = TestFiles.virtualFileSystem()
+    def fileSystemAccess = TestFiles.fileSystemAccess(virtualFileSystem)
     def stateCache = new DummyPersistentStateCache()
-    def incrementalCompileProcessor = new IncrementalCompileProcessor(stateCache, new IncrementalCompileFilesFactory(IncludeDirectives.EMPTY, includesParser, dependencyResolver, virtualFileSystem), new TestBuildOperationExecutor())
+    def incrementalCompileProcessor = new IncrementalCompileProcessor(stateCache, new IncrementalCompileFilesFactory(IncludeDirectives.EMPTY, includesParser, dependencyResolver, fileSystemAccess), new TestBuildOperationExecutor())
 
     def source1 = sourceFile("source1")
     def source2 = sourceFile("source2")
@@ -515,8 +517,8 @@ class IncrementalCompileProcessorTest extends Specification {
     }
 
     private HashCode getContentHash(File file) {
-        virtualFileSystem.update([file.absolutePath], {})
-        return virtualFileSystem.readRegularFileContentHash(file.getAbsolutePath(), { it })
-            .orElse(new MissingFileSnapshot(file.getAbsolutePath(), file.getName()).hash)
+        fileSystemAccess.write([file.absolutePath], {})
+        return fileSystemAccess.readRegularFileContentHash(file.getAbsolutePath(), { it })
+            .orElse(new MissingFileSnapshot(file.getAbsolutePath(), file.getName(), AccessType.DIRECT).hash)
     }
 }

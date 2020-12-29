@@ -18,6 +18,8 @@ package org.gradle.internal.fingerprint.classpath.impl
 
 import org.gradle.api.internal.cache.StringInterner
 import org.gradle.api.internal.changedetection.state.DefaultResourceSnapshotterCacheService
+import org.gradle.api.internal.changedetection.state.PropertiesFileFilter
+import org.gradle.api.internal.changedetection.state.ResourceEntryFilter
 import org.gradle.api.internal.changedetection.state.ResourceFilter
 import org.gradle.api.internal.file.TestFiles
 import org.gradle.internal.fingerprint.FileSystemLocationFingerprint
@@ -27,7 +29,7 @@ import org.gradle.internal.serialize.HashCodeSerializer
 import org.gradle.test.fixtures.file.CleanupTestDirectory
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
-import org.gradle.testfixtures.internal.InMemoryIndexedCache
+import org.gradle.testfixtures.internal.TestInMemoryPersistentIndexedCache
 import org.gradle.util.UsesNativeServices
 import org.junit.Rule
 import spock.lang.Specification
@@ -41,14 +43,16 @@ class DefaultClasspathFingerprinterTest extends Specification {
     def stringInterner = Stub(StringInterner) {
         intern(_) >> { String s -> s }
     }
-    def virtualFileSystem = TestFiles.virtualFileSystem()
-    def fileCollectionSnapshotter = new DefaultFileCollectionSnapshotter(virtualFileSystem, TestFiles.genericFileTreeSnapshotter(), TestFiles.fileSystem())
-    InMemoryIndexedCache<HashCode, HashCode> resourceHashesCache = new InMemoryIndexedCache<>(new HashCodeSerializer())
+    def fileSystemAccess = TestFiles.fileSystemAccess()
+    def fileCollectionSnapshotter = new DefaultFileCollectionSnapshotter(fileSystemAccess, TestFiles.genericFileTreeSnapshotter(), TestFiles.fileSystem())
+    TestInMemoryPersistentIndexedCache<HashCode, HashCode> resourceHashesCache = new TestInMemoryPersistentIndexedCache<>(new HashCodeSerializer())
     def cacheService = new DefaultResourceSnapshotterCacheService(resourceHashesCache)
     def fingerprinter = new DefaultClasspathFingerprinter(
         cacheService,
         fileCollectionSnapshotter,
         ResourceFilter.FILTER_NOTHING,
+        ResourceEntryFilter.FILTER_NOTHING,
+        PropertiesFileFilter.FILTER_NOTHING,
         stringInterner)
 
     def "directories and missing files are ignored"() {
@@ -122,7 +126,7 @@ class DefaultClasspathFingerprinterTest extends Specification {
 
         resourceHashesCache.keySet().size() == 1
         def key = resourceHashesCache.keySet().iterator().next()
-        resourceHashesCache.get(key).toString() == '397fdb436f96f0ebac6c1e147eb1cc51'
+        resourceHashesCache.getIfPresent(key).toString() == '397fdb436f96f0ebac6c1e147eb1cc51'
     }
 
     def "detects moving of files in jars and directories"() {
@@ -186,12 +190,12 @@ class DefaultClasspathFingerprinterTest extends Specification {
             ['another-library.jar', '', 'e9fa562dd3fd73bfa315b0f9876c2b6e']
         ]
         resourceHashesCache.keySet().size() == 2
-        def values = resourceHashesCache.keySet().collect { resourceHashesCache.get(it).toString() } as Set
+        def values = resourceHashesCache.keySet().collect { resourceHashesCache.getIfPresent(it).toString() } as Set
         values == ['397fdb436f96f0ebac6c1e147eb1cc51', 'e9fa562dd3fd73bfa315b0f9876c2b6e'] as Set
 
         when:
         fileCollectionFingerprint = fingerprint(zipFile, zipFile2)
-        values = resourceHashesCache.keySet().collect { resourceHashesCache.get(it).toString() } as Set
+        values = resourceHashesCache.keySet().collect { resourceHashesCache.getIfPresent(it).toString() } as Set
 
         then:
         fileCollectionFingerprint == [
@@ -220,7 +224,7 @@ class DefaultClasspathFingerprinterTest extends Specification {
     }
 
     def fingerprint(TestFile... classpath) {
-        virtualFileSystem.invalidateAll()
+        fileSystemAccess.write(classpath.collect { it.absolutePath }, {})
         def fileCollectionFingerprint = fingerprinter.fingerprint(files(classpath))
         return fileCollectionFingerprint.fingerprints.collect { String path, FileSystemLocationFingerprint fingerprint ->
             [new File(path).getName(), fingerprint.normalizedPath, fingerprint.normalizedContentHash.toString()]

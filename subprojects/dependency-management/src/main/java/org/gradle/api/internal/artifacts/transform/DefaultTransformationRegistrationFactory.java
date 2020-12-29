@@ -18,7 +18,6 @@ package org.gradle.api.internal.artifacts.transform;
 
 import com.google.common.collect.ImmutableMap;
 import org.gradle.api.InvalidUserDataException;
-import org.gradle.api.artifacts.transform.ArtifactTransform;
 import org.gradle.api.artifacts.transform.CacheableTransform;
 import org.gradle.api.artifacts.transform.InputArtifact;
 import org.gradle.api.artifacts.transform.InputArtifactDependencies;
@@ -30,7 +29,6 @@ import org.gradle.api.internal.attributes.AttributeContainerInternal;
 import org.gradle.api.internal.attributes.ImmutableAttributes;
 import org.gradle.api.internal.file.FileCollectionFactory;
 import org.gradle.api.internal.file.FileLookup;
-import org.gradle.api.internal.project.ProjectStateRegistry;
 import org.gradle.api.internal.tasks.properties.FileParameterUtils;
 import org.gradle.api.internal.tasks.properties.InputFilePropertyType;
 import org.gradle.api.internal.tasks.properties.PropertyValue;
@@ -41,9 +39,11 @@ import org.gradle.api.internal.tasks.properties.TypeMetadataStore;
 import org.gradle.api.tasks.FileNormalizer;
 import org.gradle.internal.exceptions.DefaultMultiCauseException;
 import org.gradle.internal.fingerprint.FileCollectionFingerprinterRegistry;
+import org.gradle.internal.fingerprint.DirectorySensitivity;
 import org.gradle.internal.hash.ClassLoaderHierarchyHasher;
 import org.gradle.internal.instantiation.InstantiationScheme;
 import org.gradle.internal.isolation.IsolatableFactory;
+import org.gradle.internal.model.CalculatedValueContainerFactory;
 import org.gradle.internal.operations.BuildOperationExecutor;
 import org.gradle.internal.reflect.DefaultTypeValidationContext;
 import org.gradle.internal.reflect.PropertyMetadata;
@@ -69,8 +69,8 @@ public class DefaultTransformationRegistrationFactory implements TransformationR
     private final FileCollectionFactory fileCollectionFactory;
     private final FileLookup fileLookup;
     private final FileCollectionFingerprinterRegistry fileCollectionFingerprinterRegistry;
+    private final CalculatedValueContainerFactory calculatedValueContainerFactory;
     private final DomainObjectContext owner;
-    private final ProjectStateRegistry projectRegistry;
     private final InstantiationScheme actionInstantiationScheme;
     private final InstantiationScheme legacyActionInstantiationScheme;
 
@@ -83,8 +83,8 @@ public class DefaultTransformationRegistrationFactory implements TransformationR
         FileCollectionFactory fileCollectionFactory,
         FileLookup fileLookup,
         FileCollectionFingerprinterRegistry fileCollectionFingerprinterRegistry,
+        CalculatedValueContainerFactory calculatedValueContainerFactory,
         DomainObjectContext owner,
-        ProjectStateRegistry projectRegistry,
         ArtifactTransformParameterScheme parameterScheme,
         ArtifactTransformActionScheme actionScheme,
         ServiceLookup internalServices
@@ -97,8 +97,8 @@ public class DefaultTransformationRegistrationFactory implements TransformationR
         this.fileCollectionFactory = fileCollectionFactory;
         this.fileLookup = fileLookup;
         this.fileCollectionFingerprinterRegistry = fileCollectionFingerprinterRegistry;
+        this.calculatedValueContainerFactory = calculatedValueContainerFactory;
         this.owner = owner;
-        this.projectRegistry = projectRegistry;
         this.actionInstantiationScheme = actionScheme.getInstantiationScheme();
         this.actionMetadataStore = actionScheme.getInspectionScheme().getMetadataStore();
         this.legacyActionInstantiationScheme = actionScheme.getLegacyInstantiationScheme();
@@ -116,6 +116,8 @@ public class DefaultTransformationRegistrationFactory implements TransformationR
         // Should retain this on the metadata rather than calculate on each invocation
         Class<? extends FileNormalizer> inputArtifactNormalizer = null;
         Class<? extends FileNormalizer> dependenciesNormalizer = null;
+        DirectorySensitivity artifactDirectorySensitivity = DirectorySensitivity.DEFAULT;
+        DirectorySensitivity dependenciesDirectorySensitivity = DirectorySensitivity.DEFAULT;
         for (PropertyMetadata propertyMetadata : actionMetadata.getPropertiesMetadata()) {
             Class<? extends Annotation> propertyType = propertyMetadata.getPropertyType();
             if (propertyType.equals(InputArtifact.class)) {
@@ -123,11 +125,13 @@ public class DefaultTransformationRegistrationFactory implements TransformationR
                 NormalizerCollectingVisitor visitor = new NormalizerCollectingVisitor();
                 actionMetadata.getAnnotationHandlerFor(propertyMetadata).visitPropertyValue(propertyMetadata.getPropertyName(), null, propertyMetadata, visitor, null);
                 inputArtifactNormalizer = visitor.normalizer;
+                artifactDirectorySensitivity = visitor.directorySensitivity;
                 DefaultTransformer.validateInputFileNormalizer(propertyMetadata.getPropertyName(), inputArtifactNormalizer, cacheable, validationContext);
             } else if (propertyType.equals(InputArtifactDependencies.class)) {
                 NormalizerCollectingVisitor visitor = new NormalizerCollectingVisitor();
                 actionMetadata.getAnnotationHandlerFor(propertyMetadata).visitPropertyValue(propertyMetadata.getPropertyName(), null, propertyMetadata, visitor, null);
                 dependenciesNormalizer = visitor.normalizer;
+                dependenciesDirectorySensitivity = visitor.directorySensitivity;
                 DefaultTransformer.validateInputFileNormalizer(propertyMetadata.getPropertyName(), dependenciesNormalizer, cacheable, validationContext);
             }
         }
@@ -147,11 +151,12 @@ public class DefaultTransformationRegistrationFactory implements TransformationR
         Transformer transformer = new DefaultTransformer(
             implementation,
             parameterObject,
-            null,
             from,
             FileParameterUtils.normalizerOrDefault(inputArtifactNormalizer),
             FileParameterUtils.normalizerOrDefault(dependenciesNormalizer),
             cacheable,
+            artifactDirectorySensitivity,
+            dependenciesDirectorySensitivity,
             buildOperationExecutor,
             classLoaderHierarchyHasher,
             isolatableFactory,
@@ -160,16 +165,18 @@ public class DefaultTransformationRegistrationFactory implements TransformationR
             fileLookup,
             parametersPropertyWalker,
             actionInstantiationScheme,
+            owner,
+            calculatedValueContainerFactory,
             internalServices);
 
-        return new DefaultArtifactTransformRegistration(from, to, new TransformationStep(transformer, transformerInvocationFactory, owner, projectRegistry, fileCollectionFingerprinterRegistry));
+        return new DefaultArtifactTransformRegistration(from, to, new TransformationStep(transformer, transformerInvocationFactory, owner, fileCollectionFingerprinterRegistry));
     }
 
     @Override
     @SuppressWarnings("deprecation")
-    public ArtifactTransformRegistration create(ImmutableAttributes from, ImmutableAttributes to, Class<? extends ArtifactTransform> implementation, Object[] params) {
+    public ArtifactTransformRegistration create(ImmutableAttributes from, ImmutableAttributes to, Class<? extends org.gradle.api.artifacts.transform.ArtifactTransform> implementation, Object[] params) {
         Transformer transformer = new LegacyTransformer(implementation, params, legacyActionInstantiationScheme, from, classLoaderHierarchyHasher, isolatableFactory);
-        return new DefaultArtifactTransformRegistration(from, to, new TransformationStep(transformer, transformerInvocationFactory, owner, projectRegistry, fileCollectionFingerprinterRegistry));
+        return new DefaultArtifactTransformRegistration(from, to, new TransformationStep(transformer, transformerInvocationFactory, owner, fileCollectionFingerprinterRegistry));
     }
 
     private static class DefaultArtifactTransformRegistration implements ArtifactTransformRegistration {
@@ -201,10 +208,21 @@ public class DefaultTransformationRegistrationFactory implements TransformationR
 
     private static class NormalizerCollectingVisitor extends PropertyVisitor.Adapter {
         private Class<? extends FileNormalizer> normalizer;
+        private DirectorySensitivity directorySensitivity = DirectorySensitivity.DEFAULT;
 
         @Override
-        public void visitInputFileProperty(String propertyName, boolean optional, boolean skipWhenEmpty, boolean incremental, @Nullable Class<? extends FileNormalizer> fileNormalizer, PropertyValue value, InputFilePropertyType filePropertyType) {
+        public void visitInputFileProperty(
+            String propertyName,
+            boolean optional,
+            boolean skipWhenEmpty,
+            DirectorySensitivity directorySensitivity,
+            boolean incremental,
+            @Nullable Class<? extends FileNormalizer> fileNormalizer,
+            PropertyValue value,
+            InputFilePropertyType filePropertyType
+        ) {
             this.normalizer = fileNormalizer;
+            this.directorySensitivity = directorySensitivity;
         }
     }
 }

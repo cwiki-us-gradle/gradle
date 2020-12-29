@@ -20,18 +20,21 @@ import groovy.lang.Closure
 
 import org.gradle.api.Action
 import org.gradle.api.artifacts.Dependency
+import org.gradle.api.artifacts.ExternalModuleDependency
+import org.gradle.api.artifacts.MinimalExternalModuleDependency
 import org.gradle.api.artifacts.dsl.ComponentMetadataHandler
 import org.gradle.api.artifacts.dsl.ComponentModuleMetadataHandler
 import org.gradle.api.artifacts.dsl.DependencyConstraintHandler
 import org.gradle.api.artifacts.dsl.DependencyHandler
+import org.gradle.api.artifacts.dsl.ExternalModuleDependencyVariantSpec
 import org.gradle.api.artifacts.query.ArtifactResolutionQuery
 import org.gradle.api.artifacts.transform.TransformAction
 import org.gradle.api.artifacts.transform.TransformParameters
 import org.gradle.api.artifacts.transform.TransformSpec
-import org.gradle.api.artifacts.transform.VariantTransform
 import org.gradle.api.artifacts.type.ArtifactTypeContainer
 import org.gradle.api.attributes.AttributesSchema
 import org.gradle.api.plugins.ExtensionContainer
+import org.gradle.api.provider.Provider
 
 
 /**
@@ -45,13 +48,19 @@ abstract class DependencyHandlerDelegate : DependencyHandler {
     abstract val delegate: DependencyHandler
 
     override fun getExtensions(): ExtensionContainer =
-            delegate.extensions
+        delegate.extensions
 
     override fun add(configurationName: String, dependencyNotation: Any): Dependency? =
         delegate.add(configurationName, dependencyNotation)
 
     override fun add(configurationName: String, dependencyNotation: Any, configureClosure: Closure<Any>): Dependency =
         delegate.add(configurationName, dependencyNotation, configureClosure)
+
+    override fun <T : Any, U : ExternalModuleDependency> addProvider(configurationName: String, dependencyNotation: Provider<T>, configuration: Action<in U>) =
+        delegate.addProvider(configurationName, dependencyNotation, configuration)
+
+    override fun <T : Any?> addProvider(configurationName: String, dependencyNotation: Provider<T>) =
+        delegate.addProvider(configurationName, dependencyNotation)
 
     override fun create(dependencyNotation: Any): Dependency =
         delegate.create(dependencyNotation)
@@ -110,7 +119,8 @@ abstract class DependencyHandlerDelegate : DependencyHandler {
     override fun artifactTypes(configureAction: Action<in ArtifactTypeContainer>) =
         delegate.artifactTypes(configureAction)
 
-    override fun registerTransform(registrationAction: Action<in VariantTransform>) =
+    @Suppress("deprecation")
+    override fun registerTransform(registrationAction: Action<in org.gradle.api.artifacts.transform.VariantTransform>) =
         delegate.registerTransform(registrationAction)
 
     override fun <T : TransformParameters?> registerTransform(actionType: Class<out TransformAction<T>>, registrationAction: Action<in TransformSpec<T>>) =
@@ -133,4 +143,7 @@ abstract class DependencyHandlerDelegate : DependencyHandler {
 
     override fun testFixtures(notation: Any, configureAction: Action<in Dependency>): Dependency =
         delegate.testFixtures(notation, configureAction)
+
+    override fun variantOf(dependencyProvider: Provider<MinimalExternalModuleDependency>, variantSpec: Action<in ExternalModuleDependencyVariantSpec>): Provider<MinimalExternalModuleDependency> =
+        delegate.variantOf(dependencyProvider, variantSpec)
 }

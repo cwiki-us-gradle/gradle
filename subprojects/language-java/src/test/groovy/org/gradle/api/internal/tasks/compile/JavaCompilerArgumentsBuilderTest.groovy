@@ -93,14 +93,14 @@ class JavaCompilerArgumentsBuilderTest extends Specification {
         builder.build() == defaultOptions + ['--release', '7']
     }
 
-    def "removes -source and -target option if release property is set"() {
+    def "can use a GString for the value of the release flag"() {
         when:
-        spec.release = 7
+        spec.compileOptions.compilerArgs += ['--release', "${ -> 7}"]
         spec.sourceCompatibility = '1.7'
         spec.targetCompatibility = '1.7'
 
         then:
-        builder.build() == ['--release', '7'] + defaultOptions
+        builder.build() == defaultOptions + ['--release', '7']
     }
 
     def "generates -d option"() {

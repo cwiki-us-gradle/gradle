@@ -17,7 +17,7 @@
 package org.gradle.smoketests
 
 import org.gradle.integtests.fixtures.daemon.DaemonLogsAnalyzer
-import org.gradle.internal.scan.config.fixtures.GradleEnterprisePluginSettingsFixture
+import org.gradle.internal.scan.config.fixtures.ApplyGradleEnterprisePluginFixture
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.testkit.runner.BuildResult
@@ -46,7 +46,7 @@ class AbstractAndroidSantaTrackerSmokeTest extends AbstractSmokeTest {
 
     protected void setupCopyOfSantaTracker(TestFile targetDir, String flavour, String agpVersion = null) {
         copyRemoteProject("santaTracker${flavour.capitalize()}", targetDir)
-        GradleEnterprisePluginSettingsFixture.applyEnterprisePlugin(targetDir.file("settings.gradle"))
+        ApplyGradleEnterprisePluginFixture.applyEnterprisePlugin(targetDir.file("settings.gradle"))
     }
 
     protected BuildResult buildLocation(File projectDir, String agpVersion) {
@@ -57,8 +57,8 @@ class AbstractAndroidSantaTrackerSmokeTest extends AbstractSmokeTest {
         return runnerForLocation(projectDir, agpVersion, "clean").build()
     }
 
-    private GradleRunner runnerForLocation(File projectDir, String agpVersion, String... tasks) {
-        def runner = runner(*[["-DagpVersion=$agpVersion"], tasks].flatten())
+    protected GradleRunner runnerForLocation(File projectDir, String agpVersion, String... tasks) {
+        def runner = runner(*[["-DagpVersion=$agpVersion", "-DkotlinVersion=${TestedVersions.kotlin.latest()}"], tasks].flatten())
             .withProjectDir(projectDir)
             .withTestKitDir(homeDir)
             .forwardOutput()

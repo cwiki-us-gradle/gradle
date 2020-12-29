@@ -16,6 +16,7 @@
 package org.gradle.internal.service;
 
 import org.gradle.api.Action;
+import org.gradle.internal.Cast;
 import org.gradle.internal.Factory;
 import org.gradle.internal.concurrent.CompositeStoppable;
 
@@ -81,7 +82,7 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
     private final String displayName;
     private final ServiceProvider thisAsServiceProvider;
 
-    private AtomicReference<State> state = new AtomicReference<State>(State.INIT);
+    private final AtomicReference<State> state = new AtomicReference<State>(State.INIT);
 
     public DefaultServiceRegistry() {
         this(null, NO_PARENTS);
@@ -313,7 +314,7 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
     public <T> Factory<T> getFactory(Class<T> type) {
         assertValidServiceType(type);
         Service provider = getFactoryService(type);
-        Factory<T> factory = provider == null ? null : (Factory<T>) provider.get();
+        Factory<T> factory = provider == null ? null : Cast.<Factory<T>>uncheckedCast(provider.get());
         if (factory == null) {
             throw new UnknownServiceException(type, String.format("No factory for objects of type %s available in %s.", format(type), getDisplayName()));
         }
@@ -345,7 +346,10 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
 
         @Override
         public void visit(Service service) {
-            delegate.add(serviceType.cast(service.get()));
+            T instance = serviceType.cast(service.get());
+            if (!delegate.contains(instance)) {
+                delegate.add(instance);
+            }
         }
     }
 
@@ -358,7 +362,9 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
 
         @Override
         public void visit(Service service) {
-            delegate.add(service);
+            if (!delegate.contains(service)) {
+                delegate.add(service);
+            }
         }
     }
 
@@ -485,7 +491,7 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
         }
 
         private class ProviderAnalyser {
-            private Set<Class<?>> seen = new HashSet<Class<?>>(4, 0.5f);
+            private final Set<Class<?>> seen = new HashSet<Class<?>>(4, 0.5f);
 
             public void addProviderForClassHierarchy(Class<?> serviceType, ServiceProvider serviceProvider) {
                 analyseType(serviceType, serviceProvider);
@@ -594,10 +600,10 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
         private enum BindState {UNBOUND, BINDING, BOUND}
 
         final Type serviceType;
-        final Class serviceClass;
+        final Class<?> serviceClass;
 
         BindState state = BindState.UNBOUND;
-        Class factoryElementType;
+        Class<?> factoryElementType;
 
         SingletonService(DefaultServiceRegistry owner, Type serviceType) {
             super(owner);
@@ -669,7 +675,7 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
         }
 
         private boolean isFactory(Type type, Class<?> elementType) {
-            Class c = unwrap(type);
+            Class<?> c = unwrap(type);
             if (!Factory.class.isAssignableFrom(c)) {
                 return false;
             }
@@ -683,7 +689,7 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
                 if (parameterizedType.getRawType().equals(Factory.class)) {
                     Type actualType = parameterizedType.getActualTypeArguments()[0];
                     if (actualType instanceof Class) {
-                        factoryElementType = (Class) actualType;
+                        factoryElementType = (Class<?>) actualType;
                         return elementType.isAssignableFrom((Class<?>) actualType);
                     }
                 }
@@ -885,19 +891,9 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
             if (serviceType.isInterface()) {
                 throw new ServiceValidationException("Cannot register an interface for construction.");
             }
-            Constructor<?>[] constructors = serviceType.getDeclaredConstructors();
-            Constructor<?> match = null;
-            for (Constructor<?> constructor : constructors) {
-                if (Modifier.isPrivate(constructor.getModifiers())) {
-                    continue;
-                }
-                if (match != null) {
-                    throw new ServiceValidationException(String.format("Expected a single non-private constructor for %s.", format(serviceType)));
-                }
-                match = constructor;
-            }
-            if (match == null) {
-                throw new ServiceValidationException(String.format("Expected a single non-private constructor for %s.", format(serviceType)));
+            Constructor<?> match = InjectUtil.selectConstructor(serviceType);
+            if (InjectUtil.isPackagePrivate(match.getModifiers()) || Modifier.isPrivate(match.getModifiers())) {
+                match.setAccessible(true);
             }
             this.constructor = match;
         }
@@ -1169,31 +1165,7 @@ public class DefaultServiceRegistry implements ServiceRegistry, Closeable, Conta
     }
 
     private static String format(Type type) {
-        if (type instanceof Class) {
-            Class<?> aClass = (Class) type;
-            Class<?> enclosingClass = aClass.getEnclosingClass();
-            if (enclosingClass != null) {
-                return format(enclosingClass) + "$" + aClass.getSimpleName();
-            } else {
-                return aClass.getSimpleName();
-            }
-        } else if (type instanceof ParameterizedType) {
-            ParameterizedType parameterizedType = (ParameterizedType) type;
-            StringBuilder builder = new StringBuilder();
-            builder.append(format(parameterizedType.getRawType()));
-            builder.append("<");
-            for (int i = 0; i < parameterizedType.getActualTypeArguments().length; i++) {
-                Type typeParam = parameterizedType.getActualTypeArguments()[i];
-                if (i > 0) {
-                    builder.append(", ");
-                }
-                builder.append(format(typeParam));
-            }
-            builder.append(">");
-            return builder.toString();
-        }
-
-        return type.toString();
+        return TypeStringFormatter.format(type);
     }
 
     private class ThisAsService implements ServiceProvider, Service {

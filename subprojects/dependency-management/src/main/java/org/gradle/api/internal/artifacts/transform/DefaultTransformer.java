@@ -28,10 +28,13 @@ import org.gradle.api.artifacts.transform.TransformParameters;
 import org.gradle.api.artifacts.transform.VariantTransformConfigurationException;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileSystemLocation;
+import org.gradle.api.internal.DomainObjectContext;
 import org.gradle.api.internal.attributes.ImmutableAttributes;
 import org.gradle.api.internal.file.FileCollectionFactory;
 import org.gradle.api.internal.file.FileLookup;
 import org.gradle.api.internal.plugins.DslObject;
+import org.gradle.api.internal.project.ProjectInternal;
+import org.gradle.api.internal.tasks.NodeExecutionContext;
 import org.gradle.api.internal.tasks.TaskDependencyResolveContext;
 import org.gradle.api.internal.tasks.properties.FileParameterUtils;
 import org.gradle.api.internal.tasks.properties.InputFilePropertyType;
@@ -43,12 +46,16 @@ import org.gradle.api.internal.tasks.properties.PropertyWalker;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.reflect.InjectionPointQualifier;
 import org.gradle.api.tasks.FileNormalizer;
+import org.gradle.internal.Describables;
 import org.gradle.internal.deprecation.DeprecationLogger;
 import org.gradle.internal.exceptions.DefaultMultiCauseException;
 import org.gradle.internal.fingerprint.AbsolutePathInputNormalizer;
 import org.gradle.internal.fingerprint.CurrentFileCollectionFingerprint;
+import org.gradle.internal.fingerprint.DirectorySensitivity;
 import org.gradle.internal.fingerprint.FileCollectionFingerprinter;
 import org.gradle.internal.fingerprint.FileCollectionFingerprinterRegistry;
+import org.gradle.internal.fingerprint.FileNormalizationSpec;
+import org.gradle.internal.fingerprint.impl.DefaultFileNormalizationSpec;
 import org.gradle.internal.hash.ClassLoaderHierarchyHasher;
 import org.gradle.internal.hash.HashCode;
 import org.gradle.internal.hash.Hasher;
@@ -58,6 +65,11 @@ import org.gradle.internal.instantiation.InstantiationScheme;
 import org.gradle.internal.isolated.IsolationScheme;
 import org.gradle.internal.isolation.Isolatable;
 import org.gradle.internal.isolation.IsolatableFactory;
+import org.gradle.internal.logging.text.TreeFormatter;
+import org.gradle.internal.model.CalculatedValueContainer;
+import org.gradle.internal.model.CalculatedValueContainerFactory;
+import org.gradle.internal.model.ModelContainer;
+import org.gradle.internal.model.ValueCalculator;
 import org.gradle.internal.operations.BuildOperationContext;
 import org.gradle.internal.operations.BuildOperationDescriptor;
 import org.gradle.internal.operations.BuildOperationExecutor;
@@ -85,32 +97,27 @@ import static org.gradle.internal.reflect.TypeValidationContext.Severity.WARNING
 
 public class DefaultTransformer extends AbstractTransformer<TransformAction<?>> {
 
-    private final TransformParameters parameterObject;
     private final Class<? extends FileNormalizer> fileNormalizer;
     private final Class<? extends FileNormalizer> dependenciesNormalizer;
-    private final BuildOperationExecutor buildOperationExecutor;
-    private final ClassLoaderHierarchyHasher classLoaderHierarchyHasher;
-    private final IsolatableFactory isolatableFactory;
-    private final ValueSnapshotter valueSnapshotter;
-    private final FileCollectionFactory fileCollectionFactory;
     private final FileLookup fileLookup;
-    private final PropertyWalker parameterPropertyWalker;
     private final ServiceLookup internalServices;
     private final boolean requiresDependencies;
     private final boolean requiresInputChanges;
     private final InstanceFactory<? extends TransformAction<?>> instanceFactory;
     private final boolean cacheable;
-
-    private IsolatedParameters isolatedParameters;
+    private final CalculatedValueContainer<IsolatedParameters, IsolateTransformerParameters> isolatedParameters;
+    private final DirectorySensitivity artifactDirectorySensitivity;
+    private final DirectorySensitivity dependenciesDirectorySensitivity;
 
     public DefaultTransformer(
         Class<? extends TransformAction<?>> implementationClass,
         @Nullable TransformParameters parameterObject,
-        @Nullable IsolatedParameters isolatedParameters,
         ImmutableAttributes fromAttributes,
         Class<? extends FileNormalizer> inputArtifactNormalizer,
         Class<? extends FileNormalizer> dependenciesNormalizer,
         boolean cacheable,
+        DirectorySensitivity artifactDirectorySensitivity,
+        DirectorySensitivity dependenciesDirectorySensitivity,
         BuildOperationExecutor buildOperationExecutor,
         ClassLoaderHierarchyHasher classLoaderHierarchyHasher,
         IsolatableFactory isolatableFactory,
@@ -119,25 +126,53 @@ public class DefaultTransformer extends AbstractTransformer<TransformAction<?>> 
         FileLookup fileLookup,
         PropertyWalker parameterPropertyWalker,
         InstantiationScheme actionInstantiationScheme,
+        DomainObjectContext owner,
+        CalculatedValueContainerFactory calculatedValueContainerFactory,
         ServiceLookup internalServices
     ) {
         super(implementationClass, fromAttributes);
-        this.parameterObject = parameterObject;
-        this.isolatedParameters = isolatedParameters;
         this.fileNormalizer = inputArtifactNormalizer;
         this.dependenciesNormalizer = dependenciesNormalizer;
-        this.buildOperationExecutor = buildOperationExecutor;
-        this.classLoaderHierarchyHasher = classLoaderHierarchyHasher;
-        this.isolatableFactory = isolatableFactory;
-        this.valueSnapshotter = valueSnapshotter;
-        this.fileCollectionFactory = fileCollectionFactory;
         this.fileLookup = fileLookup;
-        this.parameterPropertyWalker = parameterPropertyWalker;
         this.internalServices = internalServices;
         this.instanceFactory = actionInstantiationScheme.forType(implementationClass);
         this.requiresDependencies = instanceFactory.serviceInjectionTriggeredByAnnotation(InputArtifactDependencies.class);
         this.requiresInputChanges = instanceFactory.requiresService(InputChanges.class);
         this.cacheable = cacheable;
+        this.artifactDirectorySensitivity = artifactDirectorySensitivity;
+        this.dependenciesDirectorySensitivity = dependenciesDirectorySensitivity;
+        this.isolatedParameters = calculatedValueContainerFactory.create(Describables.of("parameters of", this),
+            new IsolateTransformerParameters(parameterObject, implementationClass, cacheable, owner, parameterPropertyWalker, isolatableFactory, buildOperationExecutor, classLoaderHierarchyHasher,
+                valueSnapshotter, fileCollectionFactory));
+    }
+
+    /**
+     * Used to recreate a transformer from the configuration cache.
+     */
+    public DefaultTransformer(
+        Class<? extends TransformAction<?>> implementationClass,
+        CalculatedValueContainer<IsolatedParameters, IsolateTransformerParameters> isolatedParameters,
+        ImmutableAttributes fromAttributes,
+        Class<? extends FileNormalizer> inputArtifactNormalizer,
+        Class<? extends FileNormalizer> dependenciesNormalizer,
+        boolean cacheable,
+        FileLookup fileLookup,
+        InstantiationScheme actionInstantiationScheme,
+        ServiceLookup internalServices,
+        DirectorySensitivity artifactDirectorySensitivity,
+        DirectorySensitivity dependenciesDirectorySensitivity) {
+        super(implementationClass, fromAttributes);
+        this.fileNormalizer = inputArtifactNormalizer;
+        this.dependenciesNormalizer = dependenciesNormalizer;
+        this.fileLookup = fileLookup;
+        this.internalServices = internalServices;
+        this.instanceFactory = actionInstantiationScheme.forType(implementationClass);
+        this.requiresDependencies = instanceFactory.serviceInjectionTriggeredByAnnotation(InputArtifactDependencies.class);
+        this.requiresInputChanges = instanceFactory.requiresService(InputChanges.class);
+        this.cacheable = cacheable;
+        this.isolatedParameters = isolatedParameters;
+        this.artifactDirectorySensitivity = artifactDirectorySensitivity;
+        this.dependenciesDirectorySensitivity = dependenciesDirectorySensitivity;
     }
 
     public static void validateInputFileNormalizer(String propertyName, @Nullable Class<? extends FileNormalizer> normalizer, boolean cacheable, TypeValidationContext validationContext) {
@@ -163,7 +198,7 @@ public class DefaultTransformer extends AbstractTransformer<TransformAction<?>> 
 
     @Override
     public boolean isIsolated() {
-        return isolatedParameters != null;
+        return isolatedParameters.getOrNull() != null;
     }
 
     @Override
@@ -182,13 +217,23 @@ public class DefaultTransformer extends AbstractTransformer<TransformAction<?>> 
     }
 
     @Override
+    public DirectorySensitivity getInputArtifactDirectorySensitivity() {
+        return artifactDirectorySensitivity;
+    }
+
+    @Override
+    public DirectorySensitivity getInputArtifactDependenciesDirectorySensitivity() {
+        return dependenciesDirectorySensitivity;
+    }
+
+    @Override
     public HashCode getSecondaryInputHash() {
-        return getIsolatedParameters().getSecondaryInputsHash();
+        return isolatedParameters.get().getSecondaryInputsHash();
     }
 
     @Override
     public ImmutableList<File> transform(Provider<FileSystemLocation> inputArtifactProvider, File outputDir, ArtifactTransformDependencies dependencies, @Nullable InputChanges inputChanges) {
-        TransformAction transformAction = newTransformAction(inputArtifactProvider, dependencies, inputChanges);
+        TransformAction<?> transformAction = newTransformAction(inputArtifactProvider, dependencies, inputChanges);
         DefaultTransformOutputs transformOutputs = new DefaultTransformOutputs(inputArtifactProvider.get().getAsFile(), outputDir, fileLookup);
         transformAction.transform(transformOutputs);
         return transformOutputs.getRegisteredOutputs();
@@ -196,59 +241,12 @@ public class DefaultTransformer extends AbstractTransformer<TransformAction<?>> 
 
     @Override
     public void visitDependencies(TaskDependencyResolveContext context) {
-        if (parameterObject != null) {
-            parameterPropertyWalker.visitProperties(parameterObject, TypeValidationContext.NOOP, new PropertyVisitor.Adapter() {
-                @Override
-                public void visitInputFileProperty(String propertyName, boolean optional, boolean skipWhenEmpty, boolean incremental, @Nullable Class<? extends FileNormalizer> fileNormalizer, PropertyValue value, InputFilePropertyType filePropertyType) {
-                    context.add(value.getTaskDependencies());
-                }
-            });
-        }
+        context.add(isolatedParameters);
     }
 
     @Override
-    public void isolateParameters(FileCollectionFingerprinterRegistry fingerprinterRegistry) {
-        try {
-            isolatedParameters = doIsolateParameters(fingerprinterRegistry);
-        } catch (Exception e) {
-            throw new VariantTransformConfigurationException(String.format("Cannot isolate parameters %s of artifact transform %s", parameterObject, ModelType.of(getImplementationClass()).getDisplayName()), e);
-        }
-    }
-
-    protected IsolatedParameters doIsolateParameters(FileCollectionFingerprinterRegistry fingerprinterRegistry) {
-        Isolatable<TransformParameters> isolatedParameterObject = isolatableFactory.isolate(parameterObject);
-
-        Hasher hasher = Hashing.newHasher();
-        appendActionImplementation(getImplementationClass(), hasher, classLoaderHierarchyHasher);
-
-        if (parameterObject != null) {
-            TransformParameters isolatedTransformParameters = isolatedParameterObject.isolate();
-            buildOperationExecutor.run(new RunnableBuildOperation() {
-                @Override
-                public void run(BuildOperationContext context) {
-                    // TODO wolfs - schedule fingerprinting separately, it can be done without having the project lock
-                    fingerprintParameters(
-                        valueSnapshotter,
-                        fingerprinterRegistry,
-                        fileCollectionFactory,
-                        parameterPropertyWalker,
-                        hasher,
-                        isolatedTransformParameters,
-                        cacheable
-                    );
-                    context.setResult(FingerprintTransformInputsOperation.Result.INSTANCE);
-                }
-
-                @Override
-                public BuildOperationDescriptor.Builder description() {
-                    return BuildOperationDescriptor
-                        .displayName("Fingerprint transformation inputs")
-                        .details(FingerprintTransformInputsOperation.Details.INSTANCE);
-                }
-            });
-        }
-        HashCode secondaryInputsHash = hasher.hash();
-        return new IsolatedParameters(isolatedParameterObject, secondaryInputsHash);
+    public void isolateParametersIfNotAlready() {
+        isolatedParameters.finalizeIfNotAlready();
     }
 
     private static void fingerprintParameters(
@@ -295,9 +293,10 @@ public class DefaultTransformer extends AbstractTransformer<TransformAction<?>> 
             }
 
             @Override
-            public void visitInputFileProperty(String propertyName, boolean optional, boolean skipWhenEmpty, boolean incremental, @Nullable Class<? extends FileNormalizer> fileNormalizer, PropertyValue value, InputFilePropertyType filePropertyType) {
+            public void visitInputFileProperty(String propertyName, boolean optional, boolean skipWhenEmpty, DirectorySensitivity directorySensitivity, boolean incremental, @Nullable Class<? extends FileNormalizer> fileNormalizer, PropertyValue value, InputFilePropertyType filePropertyType) {
                 validateInputFileNormalizer(propertyName, fileNormalizer, cacheable, validationContext);
-                FileCollectionFingerprinter fingerprinter = fingerprinterRegistry.getFingerprinter(FileParameterUtils.normalizerOrDefault(fileNormalizer));
+                FileNormalizationSpec fileNormalizationSpec = DefaultFileNormalizationSpec.from(FileParameterUtils.normalizerOrDefault(fileNormalizer), directorySensitivity);
+                FileCollectionFingerprinter fingerprinter = fingerprinterRegistry.getFingerprinter(fileNormalizationSpec);
                 FileCollection inputFileValue = FileParameterUtils.resolveInputFileValue(fileCollectionFactory, filePropertyType, value);
                 CurrentFileCollectionFingerprint fingerprint = fingerprinter.fingerprint(inputFileValue);
                 inputFileParameterFingerprintsBuilder.put(propertyName, fingerprint);
@@ -307,8 +306,14 @@ public class DefaultTransformer extends AbstractTransformer<TransformAction<?>> 
         ImmutableMap<String, TypeValidationContext.Severity> validationMessages = validationContext.getProblems();
         if (!validationMessages.isEmpty()) {
             throw new DefaultMultiCauseException(
-                String.format(validationMessages.size() == 1 ? "A problem was found with the configuration of the artifact transform parameter %s." : "Some problems were found with the configuration of the artifact transform parameter %s.", getParameterObjectDisplayName(parameterObject)),
-                validationMessages.keySet().stream().sorted().map(InvalidUserDataException::new).collect(Collectors.toList())
+                String.format(validationMessages.size() == 1
+                        ? "A problem was found with the configuration of the artifact transform parameter %s."
+                        : "Some problems were found with the configuration of the artifact transform parameter %s.",
+                    getParameterObjectDisplayName(parameterObject)),
+                validationMessages.keySet().stream()
+                    .sorted()
+                    .map(InvalidUserDataException::new)
+                    .collect(Collectors.toList())
             );
         }
 
@@ -326,22 +331,14 @@ public class DefaultTransformer extends AbstractTransformer<TransformAction<?>> 
         return ModelType.of(new DslObject(parameterObject).getDeclaredType()).getDisplayName();
     }
 
-    private TransformAction newTransformAction(Provider<FileSystemLocation> inputArtifactProvider, ArtifactTransformDependencies artifactTransformDependencies, @Nullable InputChanges inputChanges) {
-        TransformParameters parameters = getIsolatedParameters().getIsolatedParameterObject().isolate();
+    private TransformAction<?> newTransformAction(Provider<FileSystemLocation> inputArtifactProvider, ArtifactTransformDependencies artifactTransformDependencies, @Nullable InputChanges inputChanges) {
+        TransformParameters parameters = isolatedParameters.get().getIsolatedParameterObject().isolate();
         ServiceLookup services = new IsolationScheme<>(TransformAction.class, TransformParameters.class, TransformParameters.None.class).servicesForImplementation(parameters, internalServices);
         services = new TransformServiceLookup(inputArtifactProvider, requiresDependencies ? artifactTransformDependencies : null, inputChanges, services);
         return instanceFactory.newInstance(services);
     }
 
-    @Nullable
-    public TransformParameters getParameterObject() {
-        return parameterObject;
-    }
-
-    public IsolatedParameters getIsolatedParameters() {
-        if (isolatedParameters == null) {
-            throw new IllegalStateException("The parameters of " + getDisplayName() + "need to be isolated first!");
-        }
+    public CalculatedValueContainer<IsolatedParameters, IsolateTransformerParameters> getIsolatedParameters() {
         return isolatedParameters;
     }
 
@@ -474,6 +471,162 @@ public class DefaultTransformer extends AbstractTransformer<TransformAction<?>> 
 
         public Isolatable<? extends TransformParameters> getIsolatedParameterObject() {
             return isolatedParameterObject;
+        }
+    }
+
+    public static class IsolateTransformerParameters implements ValueCalculator<IsolatedParameters> {
+        private final TransformParameters parameterObject;
+        private final DomainObjectContext owner;
+        private final IsolatableFactory isolatableFactory;
+        private final PropertyWalker parameterPropertyWalker;
+        private final BuildOperationExecutor buildOperationExecutor;
+        private final ClassLoaderHierarchyHasher classLoaderHierarchyHasher;
+        private final ValueSnapshotter valueSnapshotter;
+        private final FileCollectionFactory fileCollectionFactory;
+        private final boolean cacheable;
+        private final Class<?> implementationClass;
+
+        public IsolateTransformerParameters(@Nullable TransformParameters parameterObject,
+                                            Class<?> implementationClass,
+                                            boolean cacheable,
+                                            DomainObjectContext owner,
+                                            PropertyWalker parameterPropertyWalker,
+                                            IsolatableFactory isolatableFactory,
+                                            BuildOperationExecutor buildOperationExecutor,
+                                            ClassLoaderHierarchyHasher classLoaderHierarchyHasher,
+                                            ValueSnapshotter valueSnapshotter,
+                                            FileCollectionFactory fileCollectionFactory) {
+            this.parameterObject = parameterObject;
+            this.implementationClass = implementationClass;
+            this.cacheable = cacheable;
+            this.owner = owner;
+            this.parameterPropertyWalker = parameterPropertyWalker;
+            this.isolatableFactory = isolatableFactory;
+            this.buildOperationExecutor = buildOperationExecutor;
+            this.classLoaderHierarchyHasher = classLoaderHierarchyHasher;
+            this.valueSnapshotter = valueSnapshotter;
+            this.fileCollectionFactory = fileCollectionFactory;
+        }
+
+        @Nullable
+        public TransformParameters getParameterObject() {
+            return parameterObject;
+        }
+
+        public boolean isCacheable() {
+            return cacheable;
+        }
+
+        public Class<?> getImplementationClass() {
+            return implementationClass;
+        }
+
+        @Override
+        public boolean usesMutableProjectState() {
+            return owner.getProject() != null;
+        }
+
+        @Nullable
+        @Override
+        public ProjectInternal getOwningProject() {
+            return owner.getProject();
+        }
+
+        @Override
+        public void visitDependencies(TaskDependencyResolveContext context) {
+            if (parameterObject != null) {
+                parameterPropertyWalker.visitProperties(parameterObject, TypeValidationContext.NOOP, new PropertyVisitor.Adapter() {
+                    @Override
+                    public void visitInputFileProperty(
+                        String propertyName,
+                        boolean optional,
+                        boolean skipWhenEmpty,
+                        DirectorySensitivity directorySensitivity,
+                        boolean incremental,
+                        @Nullable Class<? extends FileNormalizer> fileNormalizer,
+                        PropertyValue value,
+                        InputFilePropertyType filePropertyType
+                    ) {
+                        context.add(value.getTaskDependencies());
+                    }
+                });
+            }
+        }
+
+        @Override
+        public IsolatedParameters calculateValue(NodeExecutionContext context) {
+            FileCollectionFingerprinterRegistry fingerprinterRegistry = context.getService(FileCollectionFingerprinterRegistry.class);
+            return isolateParameters(fingerprinterRegistry);
+        }
+
+        private IsolatedParameters isolateParameters(FileCollectionFingerprinterRegistry fingerprinterRegistry) {
+            ModelContainer<?> model = owner.getModel();
+            if (!model.hasMutableState()) {
+                // This may happen when a task visits artifacts using a FileCollection instance created from a Configuration instance in a different project (not an artifact produced by a different project, these work fine)
+                // There is a check in DefaultConfiguration that deprecates resolving dependencies via FileCollection instance created by a different project, however that check may not
+                // necessarily be triggered. For example, the configuration may be legitimately resolved by some other task prior to the problematic task running
+                // TODO - hoist this up into configuration file collection visiting (and not when visiting the upstream dependencies of a transform), and deprecate this in Gradle 7.x
+                //
+                // This may also happen when a transform takes upstream dependencies and the dependencies are transformed using a different transform
+                // In this case, the main thread that schedules the work should isolate the transform parameters prior to scheduling the work. However, the dependencies may
+                // be filtered from the result, so that the transform is not visited by the main thread, or the transform worker may start work before the main thread
+                // has a chance to isolate the upstream transform
+                // TODO - ensure all transform parameters required by a transform worker are isolated prior to starting the worker
+                //
+                // Force access to the state of the owner, regardless of whether any other thread has access. This is because attempting to acquire a lock for a project may deadlock
+                // when performed from a worker thread (see DefaultBuildOperationQueue.waitForCompletion() which intentionally does not release the project locks while waiting)
+                // TODO - add validation to fail eagerly when a worker attempts to lock a project
+                //
+                return model.forceAccessToMutableState(o -> doIsolateParameters(fingerprinterRegistry));
+            } else {
+                return doIsolateParameters(fingerprinterRegistry);
+            }
+        }
+
+        private IsolatedParameters doIsolateParameters(FileCollectionFingerprinterRegistry fingerprinterRegistry) {
+            try {
+                return isolateParametersExclusively(fingerprinterRegistry);
+            } catch (Exception e) {
+                TreeFormatter formatter = new TreeFormatter();
+                formatter.node("Could not isolate parameters ").appendValue(parameterObject).append(" of artifact transform ").appendType(implementationClass);
+                throw new VariantTransformConfigurationException(formatter.toString(), e);
+            }
+        }
+
+        private IsolatedParameters isolateParametersExclusively(FileCollectionFingerprinterRegistry fingerprinterRegistry) {
+            Isolatable<TransformParameters> isolatedParameterObject = isolatableFactory.isolate(parameterObject);
+
+            Hasher hasher = Hashing.newHasher();
+            appendActionImplementation(implementationClass, hasher, classLoaderHierarchyHasher);
+
+            if (parameterObject != null) {
+                TransformParameters isolatedTransformParameters = isolatedParameterObject.isolate();
+                buildOperationExecutor.run(new RunnableBuildOperation() {
+                    @Override
+                    public void run(BuildOperationContext context) {
+                        // TODO wolfs - schedule fingerprinting separately, it can be done without having the project lock
+                        fingerprintParameters(
+                            valueSnapshotter,
+                            fingerprinterRegistry,
+                            fileCollectionFactory,
+                            parameterPropertyWalker,
+                            hasher,
+                            isolatedTransformParameters,
+                            cacheable
+                        );
+                        context.setResult(FingerprintTransformInputsOperation.Result.INSTANCE);
+                    }
+
+                    @Override
+                    public BuildOperationDescriptor.Builder description() {
+                        return BuildOperationDescriptor
+                            .displayName("Fingerprint transformation inputs")
+                            .details(FingerprintTransformInputsOperation.Details.INSTANCE);
+                    }
+                });
+            }
+            HashCode secondaryInputsHash = hasher.hash();
+            return new IsolatedParameters(isolatedParameterObject, secondaryInputsHash);
         }
     }
 

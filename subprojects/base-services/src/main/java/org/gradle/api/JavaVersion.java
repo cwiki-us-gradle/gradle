@@ -48,7 +48,6 @@ public enum JavaVersion {
      *
      * @since 6.0
      */
-    @Incubating
     VERSION_13,
 
     /**
@@ -56,12 +55,10 @@ public enum JavaVersion {
      *
      * @since 6.3
      */
-    @Incubating
     VERSION_14,
 
     /**
      * Java 15 major version.
-     * Not officially supported by Gradle. Use at your own risk.
      *
      * @since 6.3
      */
@@ -114,6 +111,9 @@ public enum JavaVersion {
         }
         if (value instanceof JavaVersion) {
             return (JavaVersion) value;
+        }
+        if (value instanceof Integer) {
+            return getVersionForMajor((Integer) value);
         }
 
         String name = value.toString();

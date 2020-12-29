@@ -18,6 +18,7 @@ package org.gradle.api.internal.tasks.compile.incremental.processing;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import org.gradle.api.internal.cache.StringInterner;
 import org.gradle.internal.serialize.AbstractSerializer;
 import org.gradle.internal.serialize.Decoder;
@@ -31,6 +32,7 @@ import java.util.Set;
 
 public class AnnotationProcessingData {
     private final Map<String, Set<String>> generatedTypesByOrigin;
+    private final Map<String, String> generatedTypesToOrigin;
     private final Set<String> aggregatedTypes;
     private final Set<String> generatedTypesDependingOnAllOthers;
     private final Map<String, Set<GeneratedResource>> generatedResourcesByOrigin;
@@ -38,18 +40,42 @@ public class AnnotationProcessingData {
     private final String fullRebuildCause;
 
     public AnnotationProcessingData() {
-        this(ImmutableMap.<String, Set<String>>of(), ImmutableSet.<String>of(), ImmutableSet.<String>of(), ImmutableMap.<String, Set<GeneratedResource>>of(), ImmutableSet.<GeneratedResource>of(), null);
+        this(ImmutableMap.of(), ImmutableSet.of(), ImmutableSet.of(), ImmutableMap.of(), ImmutableSet.of(), null);
     }
 
     public AnnotationProcessingData(Map<String, Set<String>> generatedTypesByOrigin, Set<String> aggregatedTypes, Set<String> generatedTypesDependingOnAllOthers, Map<String,
         Set<GeneratedResource>> generatedResourcesByOrigin, Set<GeneratedResource> generatedResourcesDependingOnAllOthers, String fullRebuildCause) {
 
         this.generatedTypesByOrigin = ImmutableMap.copyOf(generatedTypesByOrigin);
+        this.generatedTypesToOrigin = buildGeneratedTypesToOrigin(generatedTypesByOrigin);
         this.aggregatedTypes = ImmutableSet.copyOf(aggregatedTypes);
         this.generatedTypesDependingOnAllOthers = ImmutableSet.copyOf(generatedTypesDependingOnAllOthers);
         this.generatedResourcesByOrigin = ImmutableMap.copyOf(generatedResourcesByOrigin);
         this.generatedResourcesDependingOnAllOthers = ImmutableSet.copyOf(generatedResourcesDependingOnAllOthers);
         this.fullRebuildCause = fullRebuildCause;
+    }
+
+    private Map<String, String> buildGeneratedTypesToOrigin(Map<String, Set<String>> generatedTypesByOrigin) {
+        ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
+        Set<String> seen = Sets.newHashSet();
+        for (Map.Entry<String, Set<String>> entry : generatedTypesByOrigin.entrySet()) {
+            String origin = entry.getKey();
+            for (String generatedType : entry.getValue()) {
+                // Guava's builder doesn't support duplicates but we handle them separately
+                if (seen.add(generatedType)) {
+                    builder.put(generatedType, origin);
+                }
+            }
+        }
+        return builder.build();
+    }
+
+    public boolean participatesInClassGeneration(String clazzName) {
+        return aggregatedTypes.contains(clazzName) || generatedTypesByOrigin.containsKey(clazzName);
+    }
+
+    public boolean participatesInResourceGeneration(String clazzName) {
+        return participatesInClassGeneration(clazzName) || generatedResourcesByOrigin.containsKey(clazzName);
     }
 
     public Map<String, Set<String>> getGeneratedTypesByOrigin() {
@@ -76,6 +102,11 @@ public class AnnotationProcessingData {
         return fullRebuildCause;
     }
 
+    public String getOriginOf(String type) {
+        // if we can't find a source, then the type to reprocess is the type itself
+        return generatedTypesToOrigin.getOrDefault(type, type);
+    }
+
     public static final class Serializer extends AbstractSerializer<AnnotationProcessingData> {
         private final SetSerializer<String> typesSerializer;
         private final MapSerializer<String, Set<String>> generatedTypesSerializer;
@@ -84,12 +115,12 @@ public class AnnotationProcessingData {
 
         public Serializer(StringInterner interner) {
             InterningStringSerializer stringSerializer = new InterningStringSerializer(interner);
-            typesSerializer = new SetSerializer<String>(stringSerializer);
-            generatedTypesSerializer = new MapSerializer<String, Set<String>>(stringSerializer, typesSerializer);
+            typesSerializer = new SetSerializer<>(stringSerializer);
+            generatedTypesSerializer = new MapSerializer<>(stringSerializer, typesSerializer);
 
             GeneratedResourceSerializer resourceSerializer = new GeneratedResourceSerializer(stringSerializer);
-            this.resourcesSerializer = new SetSerializer<GeneratedResource>(resourceSerializer);
-            this.generatedResourcesSerializer = new MapSerializer<String, Set<GeneratedResource>>(stringSerializer, resourcesSerializer);
+            this.resourcesSerializer = new SetSerializer<>(resourceSerializer);
+            this.generatedResourcesSerializer = new MapSerializer<>(stringSerializer, resourcesSerializer);
         }
 
         @Override

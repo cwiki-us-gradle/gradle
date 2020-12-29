@@ -19,6 +19,7 @@ package org.gradle.process.internal.worker;
 import org.gradle.api.Action;
 import org.gradle.api.logging.LogLevel;
 import org.gradle.internal.id.IdGenerator;
+import org.gradle.internal.jvm.Jvm;
 import org.gradle.internal.logging.events.OutputEventListener;
 import org.gradle.internal.remote.Address;
 import org.gradle.internal.remote.ConnectionAcceptor;
@@ -56,7 +57,7 @@ public class DefaultWorkerProcessBuilder implements WorkerProcessBuilder {
     private final JavaExecHandleBuilder javaCommand;
     private final Set<String> packages = new HashSet<>();
     private final Set<File> applicationClasspath = new LinkedHashSet<>();
-    private boolean inferApplicationModulePath = false;
+    private final Set<File> applicationModulePath = new LinkedHashSet<>();
 
     private final MemoryManager memoryManager;
     private Action<? super WorkerProcessContext> action;
@@ -70,7 +71,7 @@ public class DefaultWorkerProcessBuilder implements WorkerProcessBuilder {
 
     DefaultWorkerProcessBuilder(JavaExecHandleFactory execHandleFactory, MessagingServer server, IdGenerator<Long> idGenerator, ApplicationClassesInSystemClassLoaderWorkerImplementationFactory workerImplementationFactory, OutputEventListener outputEventListener, MemoryManager memoryManager) {
         this.javaCommand = execHandleFactory.newJavaExec();
-        this.javaCommand.setJavaModuleDetector(workerImplementationFactory.getJavaModuleDetector());
+        this.javaCommand.setExecutable(Jvm.current().getJavaExecutable());
         this.server = server;
         this.idGenerator = idGenerator;
         this.workerImplementationFactory = workerImplementationFactory;
@@ -103,18 +104,20 @@ public class DefaultWorkerProcessBuilder implements WorkerProcessBuilder {
         return this;
     }
 
-    public boolean isInferApplicationModulePath() {
-        return inferApplicationModulePath;
+    @Override
+    public Set<File> getApplicationClasspath() {
+        return applicationClasspath;
     }
 
-    public WorkerProcessBuilder setInferApplicationModulePath(boolean inferApplicationModulePath) {
-        this.inferApplicationModulePath = inferApplicationModulePath;
+    @Override
+    public WorkerProcessBuilder applicationModulePath(Iterable<File> files) {
+        GUtil.addToCollection(applicationModulePath, files);
         return this;
     }
 
     @Override
-    public Set<File> getApplicationClasspath() {
-        return applicationClasspath;
+    public Set<File> getApplicationModulePath() {
+        return applicationModulePath;
     }
 
     @Override
@@ -213,6 +216,7 @@ public class DefaultWorkerProcessBuilder implements WorkerProcessBuilder {
 
         LOGGER.debug("Creating {}", displayName);
         LOGGER.debug("Using application classpath {}", applicationClasspath);
+        LOGGER.debug("Using application module path {}", applicationModulePath);
         LOGGER.debug("Using implementation classpath {}", implementationClassPath);
         LOGGER.debug("Using implementation module path {}", implementationModulePath);
 

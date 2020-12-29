@@ -29,6 +29,7 @@ import org.gradle.internal.UncheckedException;
 import org.gradle.internal.actor.ActorFactory;
 import org.gradle.internal.id.IdGenerator;
 import org.gradle.internal.jvm.UnsupportedJavaRuntimeException;
+import org.gradle.internal.scan.UsedByScanPlugin;
 import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.internal.time.Clock;
 import org.gradle.process.internal.worker.WorkerProcessBuilder;
@@ -38,6 +39,7 @@ import java.io.Serializable;
 import java.lang.reflect.Constructor;
 import java.util.List;
 
+@UsedByScanPlugin("test-retry")
 public class JUnitPlatformTestFramework implements TestFramework {
     private final JUnitPlatformOptions options;
     private final DefaultTestFilter filter;
@@ -92,11 +94,11 @@ public class JUnitPlatformTestFramework implements TestFramework {
         @Override
         public TestClassProcessor create(ServiceRegistry serviceRegistry) {
             try {
-                IdGenerator idGenerator = serviceRegistry.get(IdGenerator.class);
+                IdGenerator<?> idGenerator = serviceRegistry.get(IdGenerator.class);
                 Clock clock = serviceRegistry.get(Clock.class);
                 ActorFactory actorFactory = serviceRegistry.get(ActorFactory.class);
                 Class<?> clazz = getClass().getClassLoader().loadClass("org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor");
-                Constructor constructor = clazz.getConstructor(JUnitPlatformSpec.class, IdGenerator.class, ActorFactory.class, Clock.class);
+                Constructor<?> constructor = clazz.getConstructor(JUnitPlatformSpec.class, IdGenerator.class, ActorFactory.class, Clock.class);
                 return (TestClassProcessor) constructor.newInstance(spec, idGenerator, actorFactory, clock);
             } catch (Exception e) {
                 throw UncheckedException.throwAsUncheckedException(e);

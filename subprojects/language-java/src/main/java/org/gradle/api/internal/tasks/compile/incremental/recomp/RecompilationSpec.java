@@ -20,13 +20,14 @@ import org.gradle.api.internal.tasks.compile.incremental.processing.GeneratedRes
 
 import java.io.File;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
 public class RecompilationSpec {
-    private final Collection<String> classesToCompile = new NormalizingClassNamesSet();
-    private final Collection<String> classesToProcess = new NormalizingClassNamesSet();
-    private final Collection<GeneratedResource> resourcesToGenerate = new LinkedHashSet<GeneratedResource>();
+    private final Collection<String> classesToCompile = new LinkedHashSet<>();
+    private final Collection<String> classesToProcess = new LinkedHashSet<>();
+    private final Collection<GeneratedResource> resourcesToGenerate = new LinkedHashSet<>();
     private final Set<String> relativeSourcePathsToCompile = new LinkedHashSet<>();
     private String fullRebuildCause;
 
@@ -43,23 +44,39 @@ public class RecompilationSpec {
             '}';
     }
 
+    public void addClassesToCompile(Collection<String> classes) {
+        classesToCompile.addAll(classes);
+    }
+
     public Collection<String> getClassesToCompile() {
-        return classesToCompile;
+        return Collections.unmodifiableCollection(classesToCompile);
+    }
+
+    public void addRelativeSourcePathsToCompile(String path) {
+        relativeSourcePathsToCompile.add(path);
     }
 
     /**
      * @return the relative paths of files we clearly know to recompile
      */
     public Set<String> getRelativeSourcePathsToCompile() {
-        return relativeSourcePathsToCompile;
+        return Collections.unmodifiableSet(relativeSourcePathsToCompile);
+    }
+
+    public void addClassesToProcess(Collection<String> classes) {
+        classesToProcess.addAll(classes);
     }
 
     public Collection<String> getClassesToProcess() {
-        return classesToProcess;
+        return Collections.unmodifiableCollection(classesToProcess);
+    }
+
+    public void addResourcesToGenerate(Collection<GeneratedResource> resources) {
+        resourcesToGenerate.addAll(resources);
     }
 
     public Collection<GeneratedResource> getResourcesToGenerate() {
-        return resourcesToGenerate;
+        return Collections.unmodifiableCollection(resourcesToGenerate);
     }
 
     public boolean isBuildNeeded() {
@@ -78,53 +95,4 @@ public class RecompilationSpec {
         fullRebuildCause = description != null ? description : "'" + file.getName() + "' was changed";
     }
 
-    private static class NormalizingClassNamesSet extends LinkedHashSet<String> {
-        @Override
-        public boolean add(String className) {
-            return super.add(maybeClassName(className));
-        }
-
-        @Override
-        public boolean addAll(Collection<? extends String> classNames) {
-            boolean added = false;
-            for (String cn : classNames) {
-                added |= add(cn);
-            }
-            return added;
-        }
-    }
-
-    /**
-     * Given a class name, try to extract the file name portion of it.
-     *
-     * TODO: This is unreliable since there's not a strong connection between
-     * the name of a class and the name of the file that needs recompilation.
-     *
-     * For some languages, the compiler can provide this.  We should be doing that
-     * here instead of guessing.
-     */
-    static String maybeClassName(String fullyQualifiedName) {
-        final String packageName;
-        final String className;
-        int packageIdx = fullyQualifiedName.lastIndexOf('.');
-        if (packageIdx > 0) {
-            // com.example.<classname>
-            packageName = fullyQualifiedName.substring(0, packageIdx+1);
-            className = fullyQualifiedName.substring(packageIdx+1);
-        } else {
-            // must be in the default package?
-            packageName = "";
-            className = fullyQualifiedName;
-        }
-
-        final String guessClassName;
-        int innerClassIdx = className.indexOf('$');
-        if (innerClassIdx > 1) {
-            // Classes can start with a $
-            guessClassName = className.substring(0, innerClassIdx);
-        } else {
-            guessClassName = className;
-        }
-        return packageName + guessClassName;
-    }
 }

@@ -25,11 +25,21 @@ import org.gradle.api.artifacts.ModuleIdentifier;
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
 import org.gradle.api.attributes.Attribute;
 import org.gradle.api.attributes.AttributeContainer;
+import org.gradle.api.internal.FeaturePreviews;
+import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.DefaultVersionComparator;
+import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.DefaultVersionSelectorScheme;
+import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.VersionParser;
+import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.VersionSelector;
+import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.VersionSelectorScheme;
+import org.gradle.internal.Actions;
 import org.gradle.internal.Cast;
 
+import javax.annotation.Nullable;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorInternal {
@@ -41,16 +51,19 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
     private boolean locked;
 
     private Action<? super ArtifactResolutionDetails> cachedAction;
-    private String repositoryName;
+    private final Supplier<String> repositoryNameSupplier;
+    private final VersionSelectorScheme versionSelectorScheme;
+    private final ConcurrentHashMap<String, VersionSelector> versionSelectors = new ConcurrentHashMap<>();
 
-    public DefaultRepositoryContentDescriptor(String repositoryName) {
-        this.repositoryName = repositoryName;
+    public DefaultRepositoryContentDescriptor(Supplier<String> repositoryNameSupplier, FeaturePreviews featurePreviews) {
+        this.versionSelectorScheme = new DefaultVersionSelectorScheme(new DefaultVersionComparator(featurePreviews), new VersionParser());
+        this.repositoryNameSupplier = repositoryNameSupplier;
     }
 
     private void assertMutable() {
         if (locked) {
             throw new IllegalStateException("Cannot mutate content repository descriptor '" +
-                repositoryName +
+                repositoryNameSupplier.get() +
                 "' after repository has been used");
         }
     }
@@ -67,13 +80,14 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
                 excludeSpecs == null &&
                 requiredAttributes == null) {
             // no filtering in place
-            return null;
+            return Actions.doNothing();
         }
         cachedAction = new RepositoryFilterAction(createSpecMatchers(includeSpecs), createSpecMatchers(excludeSpecs));
         return cachedAction;
     }
 
-    private static ImmutableList<SpecMatcher> createSpecMatchers(Set<ContentSpec> specs) {
+    @Nullable
+    private static ImmutableList<SpecMatcher> createSpecMatchers(@Nullable Set<ContentSpec> specs) {
         ImmutableList<SpecMatcher> matchers = null;
         if (specs != null) {
             ImmutableList.Builder<SpecMatcher> builder = ImmutableList.builderWithExpectedSize(specs.size());
@@ -91,7 +105,7 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
         addInclude(group, null, null, false);
     }
 
-    private static void checkNotNull(String value, String message) {
+    private static void checkNotNull(@Nullable String value, String message) {
         if (value == null) {
             throw new IllegalArgumentException(message);
         }
@@ -133,12 +147,12 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
         addInclude(groupRegex, moduleNameRegex, versionRegex, true);
     }
 
-    private void addInclude(String group, String moduleName, String version, boolean regex) {
+    private void addInclude(String group, @Nullable String moduleName, @Nullable String version, boolean regex) {
         assertMutable();
         if (includeSpecs == null) {
             includeSpecs = Sets.newHashSet();
         }
-        includeSpecs.add(new ContentSpec(regex, group, moduleName, version));
+        includeSpecs.add(new ContentSpec(regex, group, moduleName, version, versionSelectorScheme, versionSelectors, true));
     }
 
     @Override
@@ -183,12 +197,12 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
         addExclude(groupRegex, moduleNameRegex, versionRegex, true);
     }
 
-    private void addExclude(String group, String moduleName, String version, boolean regex) {
+    private void addExclude(String group, @Nullable String moduleName, @Nullable String version, boolean regex) {
         assertMutable();
         if (excludeSpecs == null) {
             excludeSpecs = Sets.newHashSet();
         }
-        excludeSpecs.add(new ContentSpec(regex, group, moduleName, version));
+        excludeSpecs.add(new ContentSpec(regex, group, moduleName, version, versionSelectorScheme, versionSelectors, false));
     }
 
     @Override
@@ -208,6 +222,7 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public <T> void onlyForAttribute(Attribute<T> attribute, T... validValues) {
         if (requiredAttributes == null) {
             requiredAttributes = Maps.newHashMap();
@@ -220,14 +235,20 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
         private final String group;
         private final String module;
         private final String version;
+        private final VersionSelectorScheme versionSelectorScheme;
+        private final ConcurrentHashMap<String, VersionSelector> versionSelectors;
+        private final boolean inclusive;
         private final int hashCode;
 
-        private ContentSpec(boolean regex, String group, String module, String version) {
+        private ContentSpec(boolean regex, String group, @Nullable String module, @Nullable String version, VersionSelectorScheme versionSelectorScheme, ConcurrentHashMap<String, VersionSelector> versionSelectors, boolean inclusive) {
             this.regex = regex;
             this.group = group;
             this.module = module;
             this.version = version;
-            this.hashCode = Objects.hashCode(regex, group, module, version);
+            this.versionSelectorScheme = versionSelectorScheme;
+            this.versionSelectors = versionSelectors;
+            this.inclusive = inclusive;
+            this.hashCode = Objects.hashCode(regex, group, module, version, inclusive);
         }
 
         @Override
@@ -243,7 +264,8 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
                     hashCode == that.hashCode &&
                     Objects.equal(group, that.group) &&
                     Objects.equal(module, that.module) &&
-                    Objects.equal(version, that.version);
+                    Objects.equal(version, that.version) &&
+                    Objects.equal(inclusive, that.inclusive);
         }
 
         @Override
@@ -253,9 +275,9 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
 
         SpecMatcher toMatcher() {
             if (regex) {
-                return new PatternSpecMatcher(group, module, version);
+                return new PatternSpecMatcher(group, module, version, inclusive);
             }
-            return new SimpleSpecMatcher(group, module, version);
+            return new SimpleSpecMatcher(group, module, version, versionSelectorScheme, versionSelectors, inclusive);
         }
     }
 
@@ -269,24 +291,34 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
         private final String group;
         private final String module;
         private final String version;
+        private final VersionSelector versionSelector;
+        private final boolean inclusive;
 
-        private SimpleSpecMatcher(String group, String module, String version) {
+        private SimpleSpecMatcher(String group, @Nullable String module, @Nullable String version, VersionSelectorScheme versionSelectorScheme, ConcurrentHashMap<String, VersionSelector> versionSelectors, boolean inclusive) {
             this.group = group;
             this.module = module;
             this.version = version;
+            this.inclusive = inclusive;
+            this.versionSelector = getVersionSelector(versionSelectors, versionSelectorScheme, version);
         }
 
         @Override
         public boolean matches(ModuleIdentifier id) {
             return group.equals(id.getGroup())
-                    && (module == null || module.equals(id.getName()));
+                && (module == null || module.equals(id.getName()))
+                && (inclusive || version == null);
         }
 
         @Override
         public boolean matches(ModuleComponentIdentifier id) {
             return group.equals(id.getGroup())
-                    && (module == null || module.equals(id.getModule()))
-                    && (version == null || version.equals(id.getVersion()));
+                && (module == null || module.equals(id.getModule()))
+                && (version == null || version.equals(id.getVersion()) || versionSelector.accept(id.getVersion()));
+        }
+
+        @Nullable
+        private VersionSelector getVersionSelector(ConcurrentHashMap<String, VersionSelector> versionSelectors, VersionSelectorScheme versionSelectorScheme, @Nullable String version) {
+            return version != null ? versionSelectors.computeIfAbsent(version, s -> versionSelectorScheme.parseSelector(version)) : null;
         }
     }
 
@@ -294,24 +326,27 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
         private final Pattern groupPattern;
         private final Pattern modulePattern;
         private final Pattern versionPattern;
+        private final boolean inclusive;
 
-        private PatternSpecMatcher(String group, String module, String version) {
+        private PatternSpecMatcher(String group, @Nullable String module, @Nullable String version, boolean inclusive) {
             this.groupPattern = Pattern.compile(group);
             this.modulePattern = module == null ? null : Pattern.compile(module);
             this.versionPattern = version == null ? null : Pattern.compile(version);
+            this.inclusive = inclusive;
         }
 
         @Override
         public boolean matches(ModuleIdentifier id) {
             return groupPattern.matcher(id.getGroup()).matches()
-                    && (modulePattern == null || modulePattern.matcher(id.getName()).matches());
+                && (modulePattern == null || modulePattern.matcher(id.getName()).matches())
+                && (inclusive || versionPattern == null);
         }
 
         @Override
         public boolean matches(ModuleComponentIdentifier id) {
             return groupPattern.matcher(id.getGroup()).matches()
-                    && (modulePattern == null || modulePattern.matcher(id.getModule()).matches())
-                    && (versionPattern == null || versionPattern.matcher(id.getVersion()).matches());
+                && (modulePattern == null || modulePattern.matcher(id.getModule()).matches())
+                && (versionPattern == null || versionPattern.matcher(id.getVersion()).matches());
         }
     }
 
@@ -319,7 +354,7 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
         private final ImmutableList<SpecMatcher> includeMatchers;
         private final ImmutableList<SpecMatcher> excludeMatchers;
 
-        public RepositoryFilterAction(ImmutableList<SpecMatcher> includeMatchers, ImmutableList<SpecMatcher> excludeMatchers) {
+        public RepositoryFilterAction(@Nullable ImmutableList<SpecMatcher> includeMatchers, @Nullable ImmutableList<SpecMatcher> excludeMatchers) {
             this.includeMatchers = includeMatchers;
             this.excludeMatchers = excludeMatchers;
         }
@@ -344,7 +379,6 @@ class DefaultRepositoryContentDescriptor implements RepositoryContentDescriptorI
             }
             if (anyAttributesExcludes(details)) {
                 details.notFound();
-                return;
             }
         }
 

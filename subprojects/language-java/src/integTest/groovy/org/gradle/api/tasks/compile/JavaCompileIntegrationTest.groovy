@@ -18,12 +18,10 @@ package org.gradle.api.tasks.compile
 
 import org.gradle.integtests.fixtures.AbstractPluginIntegrationTest
 import org.gradle.integtests.fixtures.AvailableJavaHomes
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.util.Requires
 import org.gradle.util.Resources
 import org.gradle.util.TestPrecondition
 import org.gradle.util.TextUtil
-import org.gradle.util.ToBeImplemented
 import org.junit.Rule
 import spock.lang.Ignore
 import spock.lang.Issue
@@ -47,7 +45,6 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
         javaClassFile("Foo.class").exists()
     }
 
-    @ToBeFixedForInstantExecution
     def "don't implicitly compile source files from classpath"() {
         settingsFile << "include 'a', 'b'"
         buildFile << """
@@ -82,7 +79,6 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
     }
 
     @Issue("https://issues.gradle.org/browse/GRADLE-3508")
-    @ToBeFixedForInstantExecution
     def "detects change in classpath order"() {
         jarWithClasses(file("lib1.jar"), Thing: "class Thing {}")
         jarWithClasses(file("lib2.jar"), Thing2: "class Thing2 {}")
@@ -153,7 +149,7 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
             ${mavenCentralRepository()}
 
             dependencies {
-                testCompile "junit:junit:4.12"
+                testCompile "junit:junit:4.13"
             }
         """
 
@@ -209,8 +205,6 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
     }
 
     def "implementation dependencies should not leak into compile classpath of consumer"() {
-        executer.expectDeprecationWarning() // compile configuration
-
         mavenRepo.module('org.gradle.test', 'shared', '1.0').publish()
         mavenRepo.module('org.gradle.test', 'other', '1.0').publish()
 
@@ -218,7 +212,7 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
         settingsFile << "include 'a', 'b'"
         buildFile << """
             allprojects {
-                apply plugin: 'java'
+                apply plugin: 'java-library'
 
                 repositories {
                    maven { url '$mavenRepo.uri' }
@@ -234,7 +228,7 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
             task checkClasspath {
                 doLast {
                     def compileClasspath = compileJava.classpath.files*.name
-                    assert compileClasspath.contains('b.jar')
+                    assert !compileClasspath.contains('b.jar')
                     assert compileClasspath.contains('other-1.0.jar')
                     assert !compileClasspath.contains('shared-1.0.jar')
                 }
@@ -242,7 +236,7 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
         '''
         file('b/build.gradle') << '''
             dependencies {
-                compile 'org.gradle.test:other:1.0' // using the old 'compile' makes it leak into compile classpath
+                api 'org.gradle.test:other:1.0'
                 implementation 'org.gradle.test:shared:1.0' // but not using 'implementation'
             }
         '''
@@ -263,7 +257,7 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
 
             dependencies {
                 implementation 'org.apache.commons:commons-lang3:3.4'
-                testImplementation 'junit:junit:4.12'
+                testImplementation 'junit:junit:4.13'
             }
         """
         file('src/main/java/Text.java') << '''import org.apache.commons.lang3.StringUtils;
@@ -299,7 +293,7 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
 
             dependencies {
                 implementation 'org.apache.commons:commons-lang3:3.4'
-                testImplementation 'junit:junit:4.12'
+                testImplementation 'junit:junit:4.13'
             }
         """
         file('src/main/java/Text.java') << '''import org.apache.commons.lang3.StringUtils;
@@ -335,7 +329,7 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
 
             dependencies {
                 implementation 'org.apache.commons:commons-lang3:3.4'
-                testImplementation 'junit:junit:4.12'
+                testImplementation 'junit:junit:4.13'
             }
         """
         file('src/main/java/Text.java') << '''import org.apache.commons.lang3.StringUtils;
@@ -529,7 +523,7 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
         file('src/main/java/Hello.java') << 'public class Hello {}'
 
         when:
-        executer.withFullDeprecationStackTraceDisabled().withStackTraceChecksDisabled()
+        executer.withStackTraceChecksDisabled()
         run 'compileJava'
 
         then:
@@ -576,7 +570,6 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
             }
 
             compileJava.dependsOn(fooJar)
-
 
         '''
         file('foo.class') << 'this is clearly not a well formed class file'
@@ -638,8 +631,7 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
         executedAndNotSkipped ':compileJava'
     }
 
-    @ToBeImplemented
-    @Issue(["https://github.com/gradle/gradle/issues/2463", "https://github.com/gradle/gradle/issues/3444"])
+    @Issue("https://github.com/gradle/gradle/issues/2463")
     def "non-incremental java compilation ignores empty packages"() {
         given:
         buildFile << """
@@ -660,10 +652,9 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
 
         when:
         file('src/main/java/org/gradle/different').createDir()
-        run('compileJava', '--info')
+        run('compileJava')
         then:
-        // FIXME: should be skipped
-        executedAndNotSkipped(':compileJava')
+        skipped(':compileJava')
     }
 
     @Requires(TestPrecondition.JDK9_OR_LATER)
@@ -839,20 +830,19 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
         failureHasCause("Cannot specify -J flags via `CompileOptions.compilerArgs`. Use the `CompileOptions.forkOptions.jvmArgs` property instead.")
     }
 
-    @Requires(adhoc = { AvailableJavaHomes.getJdk7() && AvailableJavaHomes.getJdk8() && TestPrecondition.FIX_TO_WORK_ON_JAVA9.fulfilled })
-    @ToBeFixedForInstantExecution
+    @Requires(adhoc = { AvailableJavaHomes.getJdk7() && AvailableJavaHomes.getJdk8() && TestPrecondition.JDK8_OR_EARLIER.fulfilled }) // bootclasspath has been removed in Java 9+
     def "bootclasspath can be set"() {
         def jdk7 = AvailableJavaHomes.getJdk7()
-        def jdk7bootClasspath = TextUtil.escapeString(jdk7.jre.homeDir.absolutePath) + "/lib/rt.jar"
+        def jdk7bootClasspath = TextUtil.escapeString(jdk7.jre.absolutePath) + "/lib/rt.jar"
         def jdk8 = AvailableJavaHomes.getJdk8()
-        def jdk8bootClasspath = TextUtil.escapeString(jdk8.jre.homeDir.absolutePath) + "/lib/rt.jar"
+        def jdk8bootClasspath = TextUtil.escapeString(jdk8.jre.absolutePath) + "/lib/rt.jar"
         buildFile << """
             apply plugin: 'java'
 
             compileJava {
-                if (project.hasProperty("java7")) {
+                if (providers.gradleProperty("java7").forUseAtConfigurationTime().isPresent()) {
                     options.bootstrapClasspath = files("$jdk7bootClasspath")
-                } else if (project.hasProperty("java8")) {
+                } else if (providers.gradleProperty("java8").forUseAtConfigurationTime().isPresent()) {
                     options.bootstrapClasspath = files("$jdk8bootClasspath")
                 }
                 options.fork = true
@@ -945,7 +935,6 @@ class JavaCompileIntegrationTest extends AbstractPluginIntegrationTest {
         file('headers').assertHasDescendants("Foo.h")
     }
 
-    @ToBeFixedForInstantExecution
     def "deletes stale header files"() {
         given:
         buildFile << """

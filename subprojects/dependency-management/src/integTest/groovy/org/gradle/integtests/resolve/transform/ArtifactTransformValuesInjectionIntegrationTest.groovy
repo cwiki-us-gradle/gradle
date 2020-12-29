@@ -379,7 +379,10 @@ class ArtifactTransformValuesInjectionIntegrationTest extends AbstractDependency
         fails(":a:resolve")
 
         then:
-        failure.assertThatDescription(matchesRegexp('Cannot isolate parameters MakeGreen\\$Parameters_Decorated@.* of artifact transform MakeGreen'))
+        failure.assertHasDescription("Execution failed for task ':a:resolve'.")
+        failure.assertHasCause("Could not resolve all files for configuration ':a:implementation'.")
+        failure.assertHasCause("Failed to transform b.jar (project :b) to match attributes {artifactType=jar, color=green}.")
+        failure.assertThatCause(matchesRegexp('Could not isolate parameters MakeGreen\\$Parameters_Decorated@.* of artifact transform MakeGreen'))
         failure.assertHasCause('Some problems were found with the configuration of the artifact transform parameter MakeGreen.Parameters.')
         assertPropertyValidationErrors(
             absolutePathSensitivity: 'is declared to be sensitive to absolute paths. This is not allowed for cacheable transforms',
@@ -433,7 +436,7 @@ class ArtifactTransformValuesInjectionIntegrationTest extends AbstractDependency
 
     def "transform parameters type cannot use caching annotations"() {
         settingsFile << """
-            include 'a', 'b', 'c'
+            include 'a', 'b'
         """
         setupBuildWithColorTransform {
             params("""
@@ -444,7 +447,6 @@ class ArtifactTransformValuesInjectionIntegrationTest extends AbstractDependency
             project(':a') {
                 dependencies {
                     implementation project(':b')
-                    implementation project(':c')
                 }
             }
 
@@ -466,7 +468,10 @@ class ArtifactTransformValuesInjectionIntegrationTest extends AbstractDependency
         fails(":a:resolve")
 
         then:
-        failure.assertThatDescription(matchesRegexp('Cannot isolate parameters MakeGreen\\$Parameters_Decorated@.* of artifact transform MakeGreen'))
+        failure.assertHasDescription("Execution failed for task ':a:resolve'.")
+        failure.assertHasCause("Could not resolve all files for configuration ':a:implementation'.")
+        failure.assertHasCause("Failed to transform b.jar (project :b) to match attributes {artifactType=jar, color=green}.")
+        failure.assertThatCause(matchesRegexp('Could not isolate parameters MakeGreen\\$Parameters_Decorated@.* of artifact transform MakeGreen'))
         failure.assertHasCause('Some problems were found with the configuration of the artifact transform parameter MakeGreen.Parameters.')
         failure.assertHasCause("Type 'MakeGreen.Parameters': Cannot use @CacheableTask on type. This annotation can only be used with Task types.")
         failure.assertHasCause("Type 'MakeGreen.Parameters': Cannot use @CacheableTransform on type. This annotation can only be used with TransformAction types.")
@@ -509,7 +514,10 @@ class ArtifactTransformValuesInjectionIntegrationTest extends AbstractDependency
         fails(":a:resolve")
 
         then:
-        failure.assertThatDescription(matchesRegexp('Cannot isolate parameters MakeGreen\\$Parameters_Decorated@.* of artifact transform MakeGreen'))
+        failure.assertHasDescription("Execution failed for task ':a:resolve'.")
+        failure.assertHasCause("Could not resolve all files for configuration ':a:implementation'.")
+        failure.assertHasCause("Failed to transform b.jar (project :b) to match attributes {artifactType=jar, color=green}.")
+        failure.assertThatCause(matchesRegexp('Could not isolate parameters MakeGreen\\$Parameters_Decorated@.* of artifact transform MakeGreen'))
         failure.assertHasCause('A problem was found with the configuration of the artifact transform parameter MakeGreen.Parameters.')
         assertPropertyValidationErrors(bad: "is annotated with invalid property type @${annotation.simpleName}")
 
@@ -960,6 +968,11 @@ abstract class MakeGreen implements TransformAction<TransformParameters.None> {
             tasks.create('broken', MyTask)
         """
 
+        executer.expectDocumentedDeprecationWarning("Type 'MyTask': Cannot use @CacheableTransform on type. This annotation can only be used with TransformAction types. " +
+            "This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. " +
+            "Execution optimizations are disabled due to the failed validation. " +
+            "See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+
         expect:
         fails('broken')
         failure.assertHasDescription("A problem was found with the configuration of task ':broken' (type 'MyTask').")
@@ -982,6 +995,15 @@ abstract class MakeGreen implements TransformAction<TransformParameters.None> {
 
             tasks.create('broken', MyTask)
         """
+
+        executer.expectDocumentedDeprecationWarning("Type 'Options': Cannot use @CacheableTask on type. This annotation can only be used with Task types. " +
+            "This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. " +
+            "Execution optimizations are disabled due to the failed validation. " +
+            "See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+        executer.expectDocumentedDeprecationWarning("Type 'Options': Cannot use @CacheableTransform on type. This annotation can only be used with TransformAction types. " +
+            "This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. " +
+            "Execution optimizations are disabled due to the failed validation. " +
+            "See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
 
         expect:
         // Probably should be eager

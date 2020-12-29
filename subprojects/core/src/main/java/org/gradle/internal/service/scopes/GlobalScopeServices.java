@@ -25,7 +25,6 @@ import org.gradle.api.internal.DefaultClassPathProvider;
 import org.gradle.api.internal.DefaultClassPathRegistry;
 import org.gradle.api.internal.DynamicModulesClassPathProvider;
 import org.gradle.api.internal.MutationGuards;
-import org.gradle.api.internal.StartParameterInternal;
 import org.gradle.api.internal.cache.StringInterner;
 import org.gradle.api.internal.classpath.DefaultModuleRegistry;
 import org.gradle.api.internal.classpath.DefaultPluginModuleRegistry;
@@ -45,17 +44,16 @@ import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.tasks.util.PatternSet;
 import org.gradle.api.tasks.util.internal.CachingPatternSpecFactory;
 import org.gradle.api.tasks.util.internal.PatternSpecFactory;
+import org.gradle.cache.internal.CleaningInMemoryCacheDecoratorFactory;
 import org.gradle.cache.internal.CrossBuildInMemoryCacheFactory;
 import org.gradle.cache.internal.InMemoryCacheDecoratorFactory;
-import org.gradle.cli.CommandLineConverter;
 import org.gradle.configuration.DefaultImportsReader;
 import org.gradle.configuration.ImportsReader;
+import org.gradle.execution.DefaultWorkValidationWarningRecorder;
 import org.gradle.initialization.ClassLoaderRegistry;
 import org.gradle.initialization.ClassLoaderScopeListeners;
 import org.gradle.initialization.DefaultClassLoaderRegistry;
-import org.gradle.initialization.DefaultCommandLineConverter;
 import org.gradle.initialization.DefaultJdkToolsInitializer;
-import org.gradle.initialization.DefaultParallelismConfigurationManager;
 import org.gradle.initialization.FlatClassLoaderRegistry;
 import org.gradle.initialization.JdkToolsInitializer;
 import org.gradle.initialization.LegacyTypesSupport;
@@ -64,17 +62,14 @@ import org.gradle.internal.Factory;
 import org.gradle.internal.classloader.DefaultClassLoaderFactory;
 import org.gradle.internal.classpath.ClassPath;
 import org.gradle.internal.concurrent.ExecutorFactory;
-import org.gradle.internal.concurrent.ParallelismConfigurationManager;
-import org.gradle.internal.deprecation.DeprecationLogger;
 import org.gradle.internal.environment.GradleBuildEnvironment;
 import org.gradle.internal.event.ListenerManager;
+import org.gradle.internal.execution.history.OverlappingOutputDetector;
 import org.gradle.internal.execution.history.changes.DefaultExecutionStateChangeDetector;
 import org.gradle.internal.execution.history.changes.ExecutionStateChangeDetector;
-import org.gradle.internal.execution.steps.ValidateStep;
+import org.gradle.internal.execution.history.impl.DefaultOverlappingOutputDetector;
 import org.gradle.internal.filewatch.DefaultFileWatcherFactory;
 import org.gradle.internal.filewatch.FileWatcherFactory;
-import org.gradle.internal.fingerprint.overlap.OverlappingOutputDetector;
-import org.gradle.internal.fingerprint.overlap.impl.DefaultOverlappingOutputDetector;
 import org.gradle.internal.installation.CurrentGradleInstallation;
 import org.gradle.internal.installation.GradleRuntimeShadedJarDetector;
 import org.gradle.internal.instantiation.InjectAnnotationHandler;
@@ -84,6 +79,7 @@ import org.gradle.internal.instantiation.generator.DefaultInstantiatorFactory;
 import org.gradle.internal.logging.LoggingManagerInternal;
 import org.gradle.internal.nativeintegration.filesystem.FileSystem;
 import org.gradle.internal.operations.BuildOperationListenerManager;
+import org.gradle.internal.operations.BuildOperationProgressEventEmitter;
 import org.gradle.internal.operations.CurrentBuildOperationRef;
 import org.gradle.internal.operations.DefaultBuildOperationListenerManager;
 import org.gradle.internal.reflect.DirectInstantiator;
@@ -93,6 +89,7 @@ import org.gradle.internal.service.CachingServiceLocator;
 import org.gradle.internal.service.DefaultServiceLocator;
 import org.gradle.internal.service.ServiceRegistration;
 import org.gradle.internal.service.ServiceRegistry;
+import org.gradle.internal.time.Clock;
 import org.gradle.model.internal.inspect.MethodModelRuleExtractor;
 import org.gradle.model.internal.inspect.MethodModelRuleExtractors;
 import org.gradle.model.internal.inspect.ModelRuleExtractor;
@@ -152,16 +149,24 @@ public class GlobalScopeServices extends WorkerSharedGlobalScopeServices {
         return CurrentBuildOperationRef.instance();
     }
 
-    BuildOperationListenerManager createBuildOperationService() {
+    BuildOperationListenerManager createBuildOperationListenerManager() {
         return new DefaultBuildOperationListenerManager();
+    }
+
+    BuildOperationProgressEventEmitter createBuildOperationProgressEventEmitter(
+        Clock clock,
+        CurrentBuildOperationRef currentBuildOperationRef,
+        BuildOperationListenerManager listenerManager
+    ) {
+        return new BuildOperationProgressEventEmitter(
+            clock,
+            currentBuildOperationRef,
+            listenerManager.getBroadcaster()
+        );
     }
 
     GradleBuildEnvironment createGradleBuildEnvironment() {
         return environment;
-    }
-
-    CommandLineConverter<StartParameterInternal> createCommandLine2StartParameterConverter() {
-        return new DefaultCommandLineConverter();
     }
 
     CachingServiceLocator createPluginsServiceLocator(ClassLoaderRegistry registry) {
@@ -179,7 +184,7 @@ public class GlobalScopeServices extends WorkerSharedGlobalScopeServices {
     }
 
     InMemoryCacheDecoratorFactory createInMemoryTaskArtifactCache(CrossBuildInMemoryCacheFactory cacheFactory) {
-        return new InMemoryCacheDecoratorFactory(environment.isLongLivingProcess(), cacheFactory);
+        return new CleaningInMemoryCacheDecoratorFactory(environment.isLongLivingProcess(), cacheFactory);
     }
 
     ModelRuleExtractor createModelRuleInspector(List<MethodModelRuleExtractor> extractors, ModelSchemaStore modelSchemaStore, StructBindingsStore structBindingsStore, ManagedProxyFactory managedProxyFactory) {
@@ -269,10 +274,6 @@ public class GlobalScopeServices extends WorkerSharedGlobalScopeServices {
         return new DefaultTaskInputsListeners(listenerManager);
     }
 
-    ParallelismConfigurationManager createMaxWorkersManager(ListenerManager listenerManager) {
-        return new DefaultParallelismConfigurationManager(listenerManager);
-    }
-
     @Override
     PatternSpecFactory createPatternSpecFactory() {
         return new CachingPatternSpecFactory();
@@ -318,9 +319,7 @@ public class GlobalScopeServices extends WorkerSharedGlobalScopeServices {
         return new DefaultOverlappingOutputDetector();
     }
 
-    ValidateStep.ValidationWarningReporter createValidationWarningReporter() {
-        return behaviour -> DeprecationLogger.deprecateBehaviour(behaviour)
-            .willBeRemovedInGradle7()
-            .withUserManual("more_about_tasks", "sec:up_to_date_checks").nagUser();
+    DefaultWorkValidationWarningRecorder createValidationWarningReporter() {
+        return new DefaultWorkValidationWarningRecorder();
     }
 }

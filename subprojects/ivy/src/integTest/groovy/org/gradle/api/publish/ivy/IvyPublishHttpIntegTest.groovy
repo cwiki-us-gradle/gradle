@@ -16,26 +16,25 @@
 
 package org.gradle.api.publish.ivy
 
+import org.eclipse.jetty.http.HttpStatus
+import org.gradle.api.artifacts.repositories.PasswordCredentials
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.parser.MetaDataParser
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.integtests.fixtures.executer.ProgressLoggingFixture
-import org.gradle.internal.jvm.Jvm
+import org.gradle.internal.credentials.DefaultPasswordCredentials
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.test.fixtures.server.http.AuthScheme
 import org.gradle.test.fixtures.server.http.HttpServer
 import org.gradle.test.fixtures.server.http.IvyHttpModule
 import org.gradle.test.fixtures.server.http.IvyHttpRepository
 import org.gradle.util.GradleVersion
-import org.gradle.util.Requires
 import org.hamcrest.CoreMatchers
 import org.junit.Rule
-import org.mortbay.jetty.HttpStatus
 import spock.lang.Issue
 import spock.lang.Unroll
 
 import static org.gradle.test.matchers.UserAgentMatcher.matchesNameAndVersion
 import static org.gradle.util.Matchers.matchesRegexp
-import static org.gradle.util.TestPrecondition.FIX_TO_WORK_ON_JAVA9
 
 class IvyPublishHttpIntegTest extends AbstractIvyPublishIntegTest {
     private static final int HTTP_UNRECOVERABLE_ERROR = 415
@@ -55,14 +54,15 @@ credentials {
         ivyHttpRepo = new IvyHttpRepository(server, ivyRepo)
         module = ivyHttpRepo.module("org.gradle", "publish", "2")
         server.expectUserAgent(matchesNameAndVersion("Gradle", GradleVersion.current().getVersion()))
+        server.start()
+
+        settingsFile << 'rootProject.name = "publish"'
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "can publish to unauthenticated HTTP repository (extra checksums = #extraChecksums)"() {
         given:
-        server.start()
-        settingsFile << 'rootProject.name = "publish"'
         buildFile << """
             apply plugin: 'java'
             apply plugin: 'ivy-publish'
@@ -94,11 +94,11 @@ credentials {
             module.jar.sha256.expectPut()
             module.jar.sha512.expectPut()
         }
-        module.ivy.expectPut(HttpStatus.ORDINAL_201_Created)
-        module.ivy.sha1.expectPut(HttpStatus.ORDINAL_201_Created)
+        module.ivy.expectPut(HttpStatus.CREATED_201)
+        module.ivy.sha1.expectPut(HttpStatus.CREATED_201)
         if (extraChecksums) {
-            module.ivy.sha256.expectPut(HttpStatus.ORDINAL_201_Created)
-            module.ivy.sha512.expectPut(HttpStatus.ORDINAL_201_Created)
+            module.ivy.sha256.expectPut(HttpStatus.CREATED_201)
+            module.ivy.sha512.expectPut(HttpStatus.CREATED_201)
         }
         module.moduleMetadata.expectPut()
         module.moduleMetadata.sha1.expectPut()
@@ -123,11 +123,9 @@ credentials {
         extraChecksums << [true, false]
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "can publish to a repository even if it doesn't support sha256/sha512 signatures"() {
         given:
-        server.start()
-        settingsFile << 'rootProject.name = "publish"'
         buildFile << """
             apply plugin: 'java'
             apply plugin: 'ivy-publish'
@@ -166,17 +164,14 @@ credentials {
 
         then:
         succeeds 'publish'
-        outputContains("Remote repository doesn't support sha-256")
-        outputContains("Remote repository doesn't support sha-512")
+        outputContains("remote repository doesn't support sha-256. This will not fail the build.")
+        outputContains("remote repository doesn't support sha-512. This will not fail the build.")
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "can publish to authenticated repository using #authScheme auth"() {
         given:
-        server.start()
-
-        settingsFile << 'rootProject.name = "publish"'
         buildFile << """
             apply plugin: 'java'
             apply plugin: 'ivy-publish'
@@ -234,13 +229,9 @@ credentials {
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "reports failure publishing with #credsName credentials to authenticated repository using #authScheme auth"() {
         given:
-        server.start()
-
-        and:
-        settingsFile << 'rootProject.name = "publish"'
         buildFile << """
             apply plugin: 'java'
             apply plugin: 'ivy-publish'
@@ -283,10 +274,9 @@ credentials {
         AuthScheme.NTLM   | 'bad'     | BAD_CREDENTIALS
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "reports failure publishing to HTTP repository"() {
         given:
-        server.start()
         def repositoryPort = server.port
 
         buildFile << """
@@ -331,12 +321,9 @@ credentials {
         failure.assertThatCause(matchesRegexp(".*?Connect to 127.0.0.1:${repositoryPort} (\\[.*\\])? failed: Connection refused.*"))
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "uses first configured pattern for publication"() {
         given:
-        server.start()
-
-        settingsFile << 'rootProject.name = "publish"'
         buildFile << """
             apply plugin: 'java'
             apply plugin: 'ivy-publish'
@@ -381,15 +368,14 @@ credentials {
         !module.ivy.file.text.contains(MetaDataParser.GRADLE_6_METADATA_MARKER)
     }
 
-    @Requires(FIX_TO_WORK_ON_JAVA9)
-    @Issue('provide a different large jar')
-    @ToBeFixedForInstantExecution
-    public void "can publish large artifact (tools.jar) to authenticated repository"() {
+    @ToBeFixedForConfigurationCache
+    void "can publish large artifact to authenticated repository"() {
         given:
-        server.start()
-        def toolsJar = Jvm.current().toolsJar
+        def largeJar = file("large.jar")
+        new RandomAccessFile(largeJar, "rw").withCloseable {
+            it.length = 1024 * 1024 * 10 // 10 mb
+        }
 
-        settingsFile << 'rootProject.name = "publish"'
         buildFile << """
             apply plugin: 'ivy-publish'
 
@@ -410,7 +396,7 @@ credentials {
                     ivy(IvyPublication) {
                         configurations {
                             runtime {
-                                artifact('${toolsJar.toURI()}') {
+                                artifact('${largeJar.toURI()}') {
                                     name 'publish'
                                 }
                             }
@@ -436,15 +422,12 @@ credentials {
         then:
         module.assertIvyAndJarFilePublished()
         module.ivyFile.assertIsFile()
-        module.jarFile.assertIsCopyOf(new TestFile(toolsJar))
+        module.jarFile.assertIsCopyOf(new TestFile(largeJar))
     }
 
-    @ToBeFixedForInstantExecution
-    public void "does not upload meta-data file if artifact upload fails"() {
+    @ToBeFixedForConfigurationCache
+    void "does not upload meta-data file if artifact upload fails"() {
         given:
-        server.start()
-
-        settingsFile << 'rootProject.name = "publish"'
         buildFile << """
             apply plugin: 'java'
             apply plugin: 'ivy-publish'
@@ -477,11 +460,9 @@ credentials {
         module.ivyFile.assertDoesNotExist()
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "retries artifact upload for transient network error"() {
         given:
-        server.start()
-        settingsFile << 'rootProject.name = "publish"'
         buildFile << """
             apply plugin: 'java'
             apply plugin: 'ivy-publish'
@@ -510,10 +491,10 @@ credentials {
         module.jar.sha512.expectPut()
 
         module.ivy.expectPutBroken()
-        module.ivy.expectPut(HttpStatus.ORDINAL_201_Created)
-        module.ivy.sha1.expectPut(HttpStatus.ORDINAL_201_Created)
-        module.ivy.sha256.expectPut(HttpStatus.ORDINAL_201_Created)
-        module.ivy.sha512.expectPut(HttpStatus.ORDINAL_201_Created)
+        module.ivy.expectPut(HttpStatus.CREATED_201)
+        module.ivy.sha1.expectPut(HttpStatus.CREATED_201)
+        module.ivy.sha256.expectPut(HttpStatus.CREATED_201)
+        module.ivy.sha512.expectPut(HttpStatus.CREATED_201)
 
         module.moduleMetadata.expectPutBroken()
         module.moduleMetadata.expectPut()
@@ -528,12 +509,10 @@ credentials {
         module.assertMetadataAndJarFilePublished()
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     @Unroll
     def "doesn't publish Gradle metadata if custom pattern is used"() {
         given:
-
-        settingsFile << 'rootProject.name = "publish"'
         buildFile << """
             apply plugin: 'java'
             apply plugin: 'ivy-publish'
@@ -571,6 +550,120 @@ credentials {
             """,
             'artifact "org/foo/[revision]/[artifact](-[classifier]).[ext]"'
         ]
+    }
+
+    @ToBeFixedForConfigurationCache
+    void "can publish artifact to authenticated repository using credentials provider"() {
+        given:
+        String credentialsBlock = "credentials(PasswordCredentials)"
+        buildFile << publicationBuild('2', 'org.gradle', ivyHttpRepo.uri, credentialsBlock)
+
+        and:
+        PasswordCredentials credentials = new DefaultPasswordCredentials('username', 'password')
+
+        module.jar.expectPut(credentials)
+        module.jar.sha1.expectPut(credentials)
+        module.jar.sha256.expectPut(credentials)
+        module.jar.sha512.expectPut(credentials)
+        module.ivy.expectPut(credentials)
+        module.ivy.sha1.expectPut(credentials)
+        module.ivy.sha256.expectPut(credentials)
+        module.ivy.sha512.expectPut(credentials)
+        module.moduleMetadata.expectPut(credentials)
+        module.moduleMetadata.sha1.expectPut(credentials)
+        module.moduleMetadata.sha256.expectPut(credentials)
+        module.moduleMetadata.sha512.expectPut(credentials)
+
+        when:
+        executer.withArguments("-PivyUsername=${credentials.username}", "-PivyPassword=${credentials.password}")
+        succeeds 'publish'
+
+        then:
+        module.assertMetadataAndJarFilePublished()
+        module.jarFile.assertIsCopyOf(file('build/libs/publish-2.jar'))
+    }
+
+    def "fails at configuration time with helpful error message when username and password provider has no value"() {
+        given:
+        String credentialsBlock = "credentials(PasswordCredentials)"
+        buildFile << publicationBuild('2', 'org.gradle', ivyHttpRepo.uri, credentialsBlock)
+
+        when:
+        succeeds 'jar'
+
+        and:
+        succeeds 'tasks'
+
+        and:
+        fails 'publish'
+
+        then:
+        notExecuted(':jar', ':publishIvyPublicationToIvyRepository')
+        failure.assertHasDescription("Credentials required for this build could not be resolved.")
+        failure.assertHasCause("The following Gradle properties are missing for 'ivy' credentials:")
+        failure.assertHasErrorOutput("- ivyUsername")
+        failure.assertHasErrorOutput("- ivyPassword")
+    }
+
+    @ToBeFixedForConfigurationCache
+    @Issue("https://github.com/gradle/gradle/issues/14902")
+    def "does not fail when publishing is set to always up to date"() {
+        given:
+        buildFile << publicationBuild('2', 'org.gradle', ivyHttpRepo.uri, """
+        credentials {
+            username 'foo'
+            password 'bar'
+        }
+        """)
+        server.authenticationScheme = AuthScheme.BASIC
+        org.gradle.api.credentials.PasswordCredentials credentials = new DefaultPasswordCredentials('foo', 'bar')
+        module.jar.expectPut(credentials)
+        module.jar.sha1.expectPut(credentials)
+        module.jar.sha256.expectPut(credentials)
+        module.jar.sha512.expectPut(credentials)
+        module.ivy.expectPut(credentials)
+        module.ivy.sha1.expectPut(credentials)
+        module.ivy.sha256.expectPut(credentials)
+        module.ivy.sha512.expectPut(credentials)
+        module.moduleMetadata.expectPut(credentials)
+        module.moduleMetadata.sha1.expectPut(credentials)
+        module.moduleMetadata.sha256.expectPut(credentials)
+        module.moduleMetadata.sha512.expectPut(credentials)
+
+        when:
+        buildFile << """
+        tasks.withType(PublishToIvyRepository).configureEach {
+            outputs.upToDateWhen { true }
+        }
+        """
+
+        then:
+        succeeds 'publish'
+    }
+
+    private static String publicationBuild(String version, String group, URI uri, String credentialsBlock) {
+        return """
+            plugins {
+                id 'java'
+                id 'ivy-publish'
+            }
+            version = '$version'
+            group = '$group'
+
+            publishing {
+                repositories {
+                    ivy {
+                        url "$uri"
+                        $credentialsBlock
+                    }
+                }
+                publications {
+                    ivy(IvyPublication) {
+                        from components.java
+                    }
+                }
+            }
+            """
     }
 
 }

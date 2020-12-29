@@ -20,8 +20,8 @@ import org.gradle.api.internal.artifacts.ivyservice.ArtifactCacheLockingManager
 import org.gradle.cache.PersistentIndexedCache
 import org.gradle.internal.Factory
 import org.gradle.internal.component.external.model.ModuleComponentArtifactIdentifier
+import org.gradle.internal.file.FileAccessTracker
 import org.gradle.internal.hash.HashCode
-import org.gradle.internal.resource.local.FileAccessTracker
 import org.gradle.internal.serialize.Decoder
 import org.gradle.internal.serialize.Encoder
 import org.gradle.internal.serialize.Serializer
@@ -167,7 +167,7 @@ class DefaultModuleArtifactCacheTest extends Specification {
         1 * cacheLockingManager.createCache(persistentCacheFile, _, _) >> persistentIndexedCache
         1 * cacheLockingManager.useCache(_) >> { Factory<?> factory -> factory.create()}
         def key = new ArtifactAtRepositoryKey("RepoID", Stub(ModuleComponentArtifactIdentifier))
-        1 * persistentIndexedCache.get(key) >> cachedArtifact
+        1 * persistentIndexedCache.getIfPresent(key) >> cachedArtifact
         key
     }
 }

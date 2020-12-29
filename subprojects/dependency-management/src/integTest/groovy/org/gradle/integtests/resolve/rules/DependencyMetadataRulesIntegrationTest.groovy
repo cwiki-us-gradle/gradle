@@ -17,7 +17,7 @@ package org.gradle.integtests.resolve.rules
 
 import org.gradle.integtests.fixtures.GradleMetadataResolveRunner
 import org.gradle.integtests.fixtures.RequiredFeature
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.integtests.resolve.AbstractModuleDependencyResolveTest
 import org.gradle.test.fixtures.maven.MavenFileRepository
 import spock.lang.Unroll
@@ -751,7 +751,7 @@ class DependencyMetadataRulesIntegrationTest extends AbstractModuleDependencyRes
         }
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "resolving one configuration does not influence the result of resolving another configuration."() {
         given:
         repository {
@@ -801,6 +801,7 @@ class DependencyMetadataRulesIntegrationTest extends AbstractModuleDependencyRes
     }
 
     @Unroll
+    @ToBeFixedForConfigurationCache
     def "can make #thing strict"() {
         given:
         repository {
@@ -856,7 +857,7 @@ class DependencyMetadataRulesIntegrationTest extends AbstractModuleDependencyRes
         fails 'checkDep'
         failure.assertHasCause """Cannot find a version of 'org.test:moduleB' that satisfies the version constraints:
    Dependency path ':test:unspecified' --> 'org.test:moduleB:1.1'
-   ${defineAsConstraint? 'Constraint' : 'Dependency'} path ':test:unspecified' --> 'org.test:moduleA:1.0' --> 'org.test:moduleB:{strictly 1.0}'"""
+   ${defineAsConstraint? 'Constraint' : 'Dependency'} path ':test:unspecified' --> 'org.test:moduleA:1.0' ($variantToTest) --> 'org.test:moduleB:{strictly 1.0}'"""
 
         where:
         thing                    | defineAsConstraint
@@ -865,6 +866,7 @@ class DependencyMetadataRulesIntegrationTest extends AbstractModuleDependencyRes
     }
 
     @Unroll
+    @ToBeFixedForConfigurationCache
     def "can add rejections to #thing"() {
         given:
         repository {
@@ -928,7 +930,7 @@ class DependencyMetadataRulesIntegrationTest extends AbstractModuleDependencyRes
         fails 'checkDep'
         failure.assertHasCause """Cannot find a version of 'org.test:moduleB' that satisfies the version constraints:
    Dependency path ':test:unspecified' --> 'org.test:moduleB:1.1'
-   ${defineAsConstraint? 'Constraint' : 'Dependency'} path ':test:unspecified' --> 'org.test:moduleA:1.0' --> 'org.test:moduleB:{require 1.+; reject 1.1 & 1.2}'"""
+   ${defineAsConstraint? 'Constraint' : 'Dependency'} path ':test:unspecified' --> 'org.test:moduleA:1.0' ($variantToTest) --> 'org.test:moduleB:{require 1.+; reject 1.1 & 1.2}'"""
 
         where:
         thing                    | defineAsConstraint

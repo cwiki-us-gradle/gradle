@@ -51,6 +51,7 @@ import org.gradle.api.internal.attributes.ImmutableAttributesFactory;
 import org.gradle.api.specs.Spec;
 import org.gradle.internal.component.IncompatibleVariantsSelectionException;
 import org.gradle.internal.component.external.model.DefaultModuleComponentIdentifier;
+import org.gradle.internal.component.local.model.RootLocalComponentMetadata;
 import org.gradle.internal.component.model.ComponentResolveMetadata;
 import org.gradle.internal.component.model.DefaultCompatibilityCheckResult;
 import org.gradle.internal.component.model.DependencyMetadata;
@@ -65,6 +66,7 @@ import org.gradle.internal.resolve.result.DefaultBuildableComponentResolveResult
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -129,7 +131,7 @@ public class DependencyGraphBuilder {
         this.versionParser = versionParser;
     }
 
-    public void resolve(final ResolveContext resolveContext, final DependencyGraphVisitor modelVisitor) {
+    public void resolve(final ResolveContext resolveContext, final DependencyGraphVisitor modelVisitor, boolean includeSyntheticDependencies) {
 
         IdGenerator<Long> idGenerator = new LongIdGenerator();
         DefaultBuildableComponentResolveResult rootModule = new DefaultBuildableComponentResolveResult();
@@ -138,7 +140,9 @@ public class DependencyGraphBuilder {
         int graphSize = estimateSize(resolveContext);
         ResolutionStrategyInternal resolutionStrategy = resolveContext.getResolutionStrategy();
 
-        final ResolveState resolveState = new ResolveState(idGenerator, rootModule, resolveContext.getName(), idResolver, metaDataResolver, edgeFilter, attributesSchema, moduleExclusions, componentSelectorConverter, attributesFactory, dependencySubstitutionApplicator, versionSelectorScheme, versionComparator, versionParser, moduleConflictHandler.getResolver(), resolutionStrategy.isFailingOnDynamicVersions(), graphSize);
+        List<? extends DependencyMetadata> syntheticDependencies = includeSyntheticDependencies ? syntheticDependenciesOf(rootModule, resolveContext.getName()) : Collections.emptyList();
+
+        final ResolveState resolveState = new ResolveState(idGenerator, rootModule, resolveContext.getName(), idResolver, metaDataResolver, edgeFilter, attributesSchema, moduleExclusions, componentSelectorConverter, attributesFactory, dependencySubstitutionApplicator, versionSelectorScheme, versionComparator, versionParser, moduleConflictHandler.getResolver(), graphSize, resolveContext.getResolutionStrategy().getConflictResolution(), syntheticDependencies);
 
         Map<ModuleVersionIdentifier, ComponentIdentifier> componentIdentifierCache = Maps.newHashMapWithExpectedSize(graphSize / 2);
         traverseGraph(resolveState, componentIdentifierCache);
@@ -147,6 +151,14 @@ public class DependencyGraphBuilder {
 
         assembleResult(resolveState, modelVisitor);
 
+    }
+
+    private static List<? extends DependencyMetadata> syntheticDependenciesOf(DefaultBuildableComponentResolveResult rootModule, String name) {
+        ComponentResolveMetadata metadata = rootModule.getMetadata();
+        if (metadata instanceof RootLocalComponentMetadata) {
+            return ((RootLocalComponentMetadata)metadata).getSyntheticDependencies(name);
+        }
+        return Collections.emptyList();
     }
 
     /**
@@ -395,7 +407,11 @@ public class DependencyGraphBuilder {
     }
 
     private static boolean isDynamic(SelectorState selector) {
-        return selector.getVersionConstraint().isDynamic();
+        ResolvedVersionConstraint versionConstraint = selector.getVersionConstraint();
+        if (versionConstraint != null) {
+            return versionConstraint.isDynamic();
+        }
+        return false;
     }
 
     private void validateDynamicSelectors(ComponentState selected) {
@@ -507,7 +523,7 @@ public class DependencyGraphBuilder {
         }
     }
 
-    private static boolean compatible(CompatibilityRule<Object> rule, Object v1, Object v2) {
+    private static boolean compatible(CompatibilityRule<Object> rule, @Nullable Object v1, @Nullable Object v2) {
         if (Objects.equals(v1, v2)) {
             // Equal values are compatible
             return true;

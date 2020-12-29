@@ -18,12 +18,11 @@ package org.gradle.jvm.internal;
 
 import org.gradle.api.artifacts.ResolutionStrategy;
 import org.gradle.api.artifacts.ResolveException;
-import org.gradle.api.artifacts.component.BuildIdentifier;
-import org.gradle.api.artifacts.component.ComponentIdentifier;
 import org.gradle.api.artifacts.type.ArtifactTypeContainer;
 import org.gradle.api.attributes.AttributeContainer;
 import org.gradle.api.internal.artifacts.ArtifactDependencyResolver;
 import org.gradle.api.internal.artifacts.GlobalDependencyResolutionRules;
+import org.gradle.api.internal.artifacts.RepositoriesSupplier;
 import org.gradle.api.internal.artifacts.ResolveContext;
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ArtifactSet;
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ArtifactVisitor;
@@ -39,20 +38,19 @@ import org.gradle.api.internal.artifacts.ivyservice.resolveengine.graph.Dependen
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.graph.DependencyGraphSelector;
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.graph.DependencyGraphVisitor;
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.graph.RootGraphNode;
-import org.gradle.api.internal.artifacts.repositories.ResolutionAwareRepository;
 import org.gradle.api.internal.artifacts.transform.VariantSelector;
 import org.gradle.api.internal.artifacts.type.ArtifactTypeRegistry;
 import org.gradle.api.internal.attributes.AttributesSchemaInternal;
 import org.gradle.api.internal.attributes.ImmutableAttributes;
-import org.gradle.api.internal.file.AbstractFileCollection;
+import org.gradle.api.internal.file.AbstractOpaqueFileCollection;
 import org.gradle.api.internal.tasks.FailureCollectingTaskDependencyResolveContext;
 import org.gradle.api.internal.tasks.TaskDependencyResolveContext;
 import org.gradle.api.specs.Specs;
 import org.gradle.internal.DisplayName;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.component.local.model.LocalFileDependencyMetadata;
+import org.gradle.internal.component.model.ComponentArtifactMetadata;
 import org.gradle.internal.component.model.DependencyMetadata;
-import org.gradle.internal.component.model.VariantResolveMetadata;
 import org.gradle.internal.operations.BuildOperationExecutor;
 import org.gradle.internal.resolve.ModuleVersionResolveException;
 import org.gradle.language.base.internal.resolve.LibraryResolveException;
@@ -63,16 +61,16 @@ import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 
-public class DependencyResolvingClasspath extends AbstractFileCollection {
+public class DependencyResolvingClasspath extends AbstractOpaqueFileCollection {
     private final GlobalDependencyResolutionRules globalRules = GlobalDependencyResolutionRules.NO_OP;
-    private final List<ResolutionAwareRepository> remoteRepositories;
+    private final RepositoriesSupplier repositoriesSupplier;
     private final BinarySpecInternal binary;
     private final ArtifactDependencyResolver dependencyResolver;
     private final ResolveContext resolveContext;
     private final AttributesSchemaInternal attributesSchema;
     private final BuildOperationExecutor buildOperationExecutor;
-    private final BuildIdentifier thisBuild;
 
     private final String descriptor;
     private ResolveResult resolveResult;
@@ -81,19 +79,17 @@ public class DependencyResolvingClasspath extends AbstractFileCollection {
         BinarySpecInternal binarySpec,
         String descriptor,
         ArtifactDependencyResolver dependencyResolver,
-        List<ResolutionAwareRepository> remoteRepositories,
+        RepositoriesSupplier repositoriesSupplier,
         ResolveContext resolveContext,
         AttributesSchemaInternal attributesSchema,
-        BuildOperationExecutor buildOperationExecutor,
-        BuildIdentifier thisBuild) {
+        BuildOperationExecutor buildOperationExecutor) {
         this.binary = binarySpec;
         this.descriptor = descriptor;
         this.dependencyResolver = dependencyResolver;
-        this.remoteRepositories = remoteRepositories;
+        this.repositoriesSupplier = repositoriesSupplier;
         this.resolveContext = resolveContext;
         this.attributesSchema = attributesSchema;
         this.buildOperationExecutor = buildOperationExecutor;
-        this.thisBuild = thisBuild;
     }
 
     @Override
@@ -102,7 +98,7 @@ public class DependencyResolvingClasspath extends AbstractFileCollection {
     }
 
     @Override
-    public Set<File> getFiles() {
+    protected Set<File> getIntrinsicFiles() {
         ensureResolved(true);
         final Set<File> result = new LinkedHashSet<File>();
         ParallelResolveArtifactSet artifacts = ParallelResolveArtifactSet.wrap(resolveResult.artifactsResults.getArtifacts(), buildOperationExecutor);
@@ -146,22 +142,27 @@ public class DependencyResolvingClasspath extends AbstractFileCollection {
 
     private ResolveResult resolve() {
         ResolveResult result = new ResolveResult();
-        dependencyResolver.resolve(resolveContext, remoteRepositories, globalRules, Specs.<DependencyMetadata>satisfyAll(), result, result, attributesSchema, new ArtifactTypeRegistry() {
+        dependencyResolver.resolve(resolveContext, repositoriesSupplier.get(), globalRules, Specs.<DependencyMetadata>satisfyAll(), result, result, attributesSchema, new ArtifactTypeRegistry() {
             @Override
             public ImmutableAttributes mapAttributesFor(File file) {
                 return ImmutableAttributes.EMPTY;
             }
 
             @Override
-            public ImmutableAttributes mapAttributesFor(VariantResolveMetadata variant) {
-                return variant.getAttributes().asImmutable();
+            public ImmutableAttributes mapAttributesFor(ImmutableAttributes attributes, Iterable<? extends ComponentArtifactMetadata> artifacts) {
+                return attributes;
+            }
+
+            @Override
+            public void visitArtifactTypes(Consumer<? super ImmutableAttributes> action) {
+                throw new UnsupportedOperationException();
             }
 
             @Override
             public ArtifactTypeContainer create() {
                 throw new UnsupportedOperationException();
             }
-        });
+        }, false);
         return result;
     }
 
@@ -172,8 +173,8 @@ public class DependencyResolvingClasspath extends AbstractFileCollection {
     }
 
     class ResolveResult implements DependencyGraphVisitor, DependencyArtifactsVisitor {
-        public final List<Throwable> notFound = new LinkedList<Throwable>();
-        public DefaultResolvedArtifactsBuilder artifactsBuilder = new DefaultResolvedArtifactsBuilder(thisBuild, true, ResolutionStrategy.SortOrder.DEFAULT);
+        public final List<Throwable> notFound = new LinkedList<>();
+        public DefaultResolvedArtifactsBuilder artifactsBuilder = new DefaultResolvedArtifactsBuilder(true, ResolutionStrategy.SortOrder.DEFAULT);
         public SelectedArtifactResults artifactsResults;
 
         @Override
@@ -219,11 +220,16 @@ public class DependencyResolvingClasspath extends AbstractFileCollection {
 
         @Override
         public void finishArtifacts() {
-            artifactsResults = artifactsBuilder.complete().select(Specs.<ComponentIdentifier>satisfyAll(), new VariantSelector() {
+            artifactsResults = artifactsBuilder.complete().select(Specs.satisfyAll(), new VariantSelector() {
                 @Override
-                public ResolvedArtifactSet select(ResolvedVariantSet variants) {
+                public ImmutableAttributes getRequestedAttributes() {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public ResolvedArtifactSet select(ResolvedVariantSet candidates, Factory factory) {
                     // Select the first variant
-                    return variants.getVariants().iterator().next().getArtifacts();
+                    return candidates.getVariants().iterator().next().getArtifacts();
                 }
             });
         }

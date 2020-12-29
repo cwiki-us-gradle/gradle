@@ -16,13 +16,13 @@
 
 package org.gradle.api.tasks
 
+import org.gradle.api.internal.AbstractTask
+import org.gradle.api.internal.TaskInternal
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import spock.lang.Unroll
 
 class TaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
     private static final String CUSTOM_TASK_WITH_CONSTRUCTOR_ARGS = """
-        import javax.inject.Inject
-
         class CustomTask extends DefaultTask {
             @Internal
             final String message
@@ -80,7 +80,7 @@ class TaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
         """
 
         expect:
-        succeeds ":emptyOptions", ":nothing",":withAction", ":withOptions", ":withOptionsAndAction"
+        succeeds ":emptyOptions", ":nothing", ":withAction", ":withOptions", ":withOptionsAndAction"
     }
 
     def "can define tasks in nested blocks"() {
@@ -123,7 +123,7 @@ class TaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
             ":withAction", ":withOptions", ":withOptionsAndAction", ":all"
     }
 
-    def "can configure tasks when the are defined"() {
+    def "can configure tasks when they are defined"() {
         buildFile << """
             task withDescription { description = 'value' }
             task(asMethod)\n{ description = 'value' }
@@ -138,11 +138,63 @@ class TaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
                 assert 'value' == it.description
             }
             task all(dependsOn: ["withDescription", "asMethod", "asStatement", "dynamic", "asExpression", "postConfigure"])
-            class TestTask extends DefaultTask { String property }
+            class TestTask extends DefaultTask { @Input String property }
         """
 
         expect:
         succeeds "all"
+    }
+
+    def "can define task using type Task"() {
+        buildFile << """
+            task thing(type: Task) { t ->
+                assert t instanceof DefaultTask
+                doFirst { println("thing") }
+            }
+        """
+
+        expect:
+        succeeds("thing")
+    }
+
+    def "creating a task of type AbstractTask is not supported"() {
+        buildFile << """
+            task thing(type: ${AbstractTask.name}) { t ->
+                assert t instanceof DefaultTask
+                doFirst { println("thing") }
+            }
+        """
+
+        expect:
+        fails("thing")
+        failureHasCause("Cannot create task ':thing' of type 'AbstractTask' as this type is not supported for task registration.")
+    }
+
+    def "creating a task of type TaskInternal is not supported"() {
+        buildFile << """
+            task thing(type: ${TaskInternal.name}) { t ->
+                assert t instanceof DefaultTask
+                doFirst { println("thing") }
+            }
+        """
+
+        expect:
+        fails("thing")
+        failureHasCause("Cannot create task ':thing' of type 'TaskInternal' as this type is not supported for task registration.")
+    }
+
+    def "creating a task that is a subtype of AbstractTask is not supported"() {
+        buildFile << """
+            class CustomTask extends ${AbstractTask.name} {
+            }
+            task thing(type: CustomTask) { t ->
+                doFirst { println("thing") }
+            }
+        """
+
+        expect:
+        fails("thing")
+        failureHasCause("Cannot create task ':thing' of type 'CustomTask' as directly extending AbstractTask is not supported.")
     }
 
     def "does not hide local methods and variables"() {
@@ -464,7 +516,6 @@ class TaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
         file("build.gradle.kts") << """
             import org.gradle.api.*
             import org.gradle.api.tasks.*
-            import javax.inject.Inject
 
             open class CustomTask @Inject constructor(private val message: String, private val number: Int) : DefaultTask() {
                 @TaskAction fun run() = println("\$message \$number")
@@ -542,7 +593,7 @@ class TaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
             def schema = tasks.collectionSchema.elements.collectEntries { e ->
                 [ e.name, e.publicType.simpleName ]
             }
-            assert schema.size() == 18
+            assert (schema.size() == 17 || schema.size() == 19)
 
             assert schema["help"] == "Help"
 
@@ -558,8 +609,10 @@ class TaskDefinitionIntegrationTest extends AbstractIntegrationSpec {
             assert schema["model"] == "ModelReport"
             assert schema["dependentComponents"] == "DependentComponentsReport"
 
-            assert schema["init"] == "InitBuild"
-            assert schema["wrapper"] == "Wrapper"
+            if (schema.size() == 19) {
+                assert schema["init"] == "InitBuild"
+                assert schema["wrapper"] == "Wrapper"
+            }
 
             assert schema["prepareKotlinBuildScriptModel"] == "DefaultTask"
 

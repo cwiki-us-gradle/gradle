@@ -40,24 +40,27 @@ class CrossCompilationIntegrationTest extends AbstractIntegrationSpec {
                 jcenter()
             }
             dependencies {
-                testImplementation("junit:junit:4.12")
+                testImplementation("junit:junit:4.13")
             }
             java {
                 sourceCompatibility = JavaVersion.${version.name()}
             }
 
-            def javaInstallation = project.javaInstalls.installationForDirectory(project.layout.projectDirectory.dir("${jvm.javaHome.toURI()}"))
+            def launcher = javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(${version.majorVersion})
+            }.get()
+            def installationDirectory = launcher.metadata.installationPath
 
             tasks.named("compileJava") {
                 options.fork = true
-                options.forkOptions.javaHome = javaInstallation.get().installationDirectory.asFile
+                options.forkOptions.javaHome = installationDirectory.asFile
             }
             tasks.named("compileTestJava") {
                 options.fork = true
-                options.forkOptions.javaHome = javaInstallation.get().installationDirectory.asFile
+                options.forkOptions.javaHome = installationDirectory.asFile
             }
             tasks.named("test") {
-                executable = javaInstallation.get().javaExecutable.asFile
+                executable = launcher.executablePath.asFile
             }
         """
 
@@ -92,6 +95,9 @@ class CrossCompilationIntegrationTest extends AbstractIntegrationSpec {
         """
 
         when:
+        executer.beforeExecute({
+            withArgument("-Porg.gradle.java.installations.paths=" + jvm.getJavaHome().getAbsolutePath())
+        })
         fails("build")
 
         then:

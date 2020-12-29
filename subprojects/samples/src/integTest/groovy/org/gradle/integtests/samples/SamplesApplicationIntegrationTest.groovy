@@ -18,21 +18,22 @@ package org.gradle.integtests.samples
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.Sample
 import org.gradle.integtests.fixtures.ScriptExecuter
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.test.fixtures.file.TestFile
+import org.gradle.util.Requires
+import org.gradle.util.TestPrecondition
 import org.junit.Rule
 import spock.lang.Unroll
 
+@Requires(TestPrecondition.JDK9_OR_LATER)
 class SamplesApplicationIntegrationTest extends AbstractIntegrationSpec {
 
-    @Rule Sample sample = new Sample(temporaryFolder, 'application')
+    @Rule Sample sample = new Sample(temporaryFolder, 'java/application')
 
     def setup() {
         executer.withRepositoryMirrors()
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution
     def "can run the application using run task with #dsl dsl"() {
         when:
         executer.inDirectory(sample.dir.file(dsl))
@@ -46,7 +47,6 @@ class SamplesApplicationIntegrationTest extends AbstractIntegrationSpec {
     }
 
     @Unroll
-    @ToBeFixedForInstantExecution
     def "can build and run the installed application with #dsl dsl"() {
         when:
         def dslDir = sample.dir.file(dsl)
@@ -100,10 +100,12 @@ application {
         installDir.file("${executableDir}/my-app").assertIsFile()
         installDir.file("${executableDir}/my-app.bat").assertIsFile()
         installDir.file('lib/application-1.0.2.jar').assertIsFile()
-        installDir.file('lib/commons-collections-3.2.2.jar').assertIsFile()
 
         installDir.file('LICENSE').assertIsFile()
         installDir.file('docs/readme.txt').assertIsFile()
+
+        installDir.file("${executableDir}/my-app").text.contains("MODULE_PATH=")
+        installDir.file("${executableDir}/my-app.bat").text.contains("MODULE_PATH=")
 
         def builder = new ScriptExecuter()
         builder.workingDir installDir.file(executableDir)

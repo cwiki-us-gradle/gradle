@@ -18,7 +18,7 @@ package org.gradle.integtests.samples.files
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.Sample
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.integtests.fixtures.UsesSample
 import org.junit.Rule
 import spock.lang.Unroll
@@ -29,8 +29,8 @@ class SamplesFilesMiscIntegrationTest extends AbstractIntegrationSpec {
     Sample sample = new Sample(testDirectoryProvider)
 
     @Unroll
-    @UsesSample("userguide/files/misc")
-    @ToBeFixedForInstantExecution(iterationMatchers = ".*kotlin dsl.*")
+    @UsesSample("files/misc")
+    @ToBeFixedForConfigurationCache(iterationMatchers = ".*kotlin dsl.*")
     def "can create a directory with #dsl dsl"() {
         given:
         def dslDir = sample.dir.file(dsl)
@@ -47,8 +47,8 @@ class SamplesFilesMiscIntegrationTest extends AbstractIntegrationSpec {
     }
 
     @Unroll
-    @UsesSample("userguide/files/misc")
-    @ToBeFixedForInstantExecution(iterationMatchers = ".*kotlin dsl.*")
+    @UsesSample("files/misc")
+    @ToBeFixedForConfigurationCache(iterationMatchers = ".*kotlin dsl.*")
     def "can move a directory with #dsl dsl"() {
         given:
         def dslDir = sample.dir.file(dsl)
@@ -75,7 +75,7 @@ class SamplesFilesMiscIntegrationTest extends AbstractIntegrationSpec {
     }
 
     @Unroll
-    @UsesSample("userguide/files/misc")
+    @UsesSample("files/misc")
     def "can delete a directory with #dsl dsl"() {
         given:
         def dslDir = sample.dir.file(dsl)
@@ -93,7 +93,7 @@ class SamplesFilesMiscIntegrationTest extends AbstractIntegrationSpec {
     }
 
     @Unroll
-    @UsesSample("userguide/files/misc")
+    @UsesSample("files/misc")
     def "can delete files matching a pattern with #dsl dsl"() {
         given:
         def dslDir = sample.dir.file(dsl)
@@ -114,8 +114,8 @@ class SamplesFilesMiscIntegrationTest extends AbstractIntegrationSpec {
     }
 
     @Unroll
-    @UsesSample("userguide/files/misc")
-    @ToBeFixedForInstantExecution(iterationMatchers = ".*kotlin dsl.*")
+    @UsesSample("files/misc")
+    @ToBeFixedForConfigurationCache(iterationMatchers = ".*kotlin dsl.*")
     def "can use the rootDir property in a child project with #dsl dsl"() {
         given:
         def dslDir = sample.dir.file(dsl)

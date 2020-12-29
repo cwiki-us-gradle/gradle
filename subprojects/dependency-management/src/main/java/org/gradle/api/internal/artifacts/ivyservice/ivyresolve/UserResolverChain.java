@@ -28,6 +28,7 @@ import org.gradle.api.internal.attributes.ImmutableAttributesFactory;
 import org.gradle.internal.component.external.model.ModuleComponentResolveMetadata;
 import org.gradle.internal.component.model.ImmutableModuleSources;
 import org.gradle.internal.component.model.ModuleSources;
+import org.gradle.internal.model.CalculatedValueContainerFactory;
 import org.gradle.internal.resolve.caching.ComponentMetadataSupplierRuleExecutor;
 import org.gradle.internal.resolve.resolver.ArtifactResolver;
 import org.gradle.internal.resolve.resolver.ComponentMetaDataResolver;
@@ -46,13 +47,16 @@ public class UserResolverChain implements ComponentResolvers {
                              AttributeContainer consumerAttributes,
                              AttributesSchema attributesSchema,
                              ImmutableAttributesFactory attributesFactory,
-                             ComponentMetadataProcessorFactory componentMetadataProcessor, ComponentMetadataSupplierRuleExecutor componentMetadataSupplierRuleExecutor, CachePolicy cachePolicy) {
+                             ComponentMetadataProcessorFactory componentMetadataProcessor,
+                             ComponentMetadataSupplierRuleExecutor componentMetadataSupplierRuleExecutor,
+                             CachePolicy cachePolicy,
+                             CalculatedValueContainerFactory calculatedValueContainerFactory) {
         this.componentSelectionRules = componentSelectionRules;
         VersionedComponentChooser componentChooser = new DefaultVersionedComponentChooser(versionComparator, versionParser, componentSelectionRules, attributesSchema);
         ModuleTransformer metaDataFactory = new ModuleTransformer();
         componentIdResolver = new RepositoryChainDependencyToComponentIdResolver(componentChooser, metaDataFactory, versionParser, consumerAttributes, attributesFactory, componentMetadataProcessor, componentMetadataSupplierRuleExecutor, cachePolicy);
         componentResolver = new RepositoryChainComponentMetaDataResolver(componentChooser, metaDataFactory);
-        artifactResolver = new RepositoryChainArtifactResolver();
+        artifactResolver = new RepositoryChainArtifactResolver(calculatedValueContainerFactory);
     }
 
     @Override
@@ -86,8 +90,6 @@ public class UserResolverChain implements ComponentResolvers {
     }
 
     private static class ModuleTransformer implements Transformer<ModuleComponentResolveMetadata, RepositoryChainModuleResolution> {
-        private final boolean log = Boolean.getBoolean("debug.modulesource");
-
         @Override
         public ModuleComponentResolveMetadata transform(RepositoryChainModuleResolution original) {
             RepositoryChainModuleSource moduleSource = new RepositoryChainModuleSource(original.repository);

@@ -16,25 +16,25 @@
 
 package org.gradle.internal.snapshot;
 
+import org.gradle.internal.file.FileMetadata.AccessType;
 import org.gradle.internal.file.FileType;
 import org.gradle.internal.hash.HashCode;
 import org.gradle.internal.hash.Hashing;
 
-import javax.annotation.Nullable;
 import java.util.Optional;
 
 /**
  * A snapshot of a missing file or a broken symbolic link or a named pipe.
  */
-public class MissingFileSnapshot extends AbstractCompleteFileSystemLocationSnapshot {
+public class MissingFileSnapshot extends AbstractFileSystemLocationSnapshot implements FileSystemLeafSnapshot {
     private static final HashCode SIGNATURE = Hashing.signature(MissingFileSnapshot.class);
 
-    public MissingFileSnapshot(String absolutePath, String name) {
-        super(absolutePath, name);
+    public MissingFileSnapshot(String absolutePath, String name, AccessType accessType) {
+        super(absolutePath, name, accessType);
     }
 
-    public MissingFileSnapshot(String absolutePath) {
-        super(absolutePath, PathUtil.getFileName(absolutePath));
+    public MissingFileSnapshot(String absolutePath, AccessType accessType) {
+        this(absolutePath, PathUtil.getFileName(absolutePath), accessType);
     }
 
     @Override
@@ -48,21 +48,32 @@ public class MissingFileSnapshot extends AbstractCompleteFileSystemLocationSnaps
     }
 
     @Override
-    public boolean isContentAndMetadataUpToDate(CompleteFileSystemLocationSnapshot other) {
+    public boolean isContentAndMetadataUpToDate(FileSystemLocationSnapshot other) {
+        return isContentUpToDate(other);
+    }
+
+    @Override
+    public boolean isContentUpToDate(FileSystemLocationSnapshot other) {
         return other instanceof MissingFileSnapshot;
     }
 
     @Override
-    public void accept(FileSystemSnapshotVisitor visitor) {
-        visitor.visitFile(this);
+    public void accept(FileSystemLocationSnapshotVisitor visitor) {
+        visitor.visitMissing(this);
     }
 
     @Override
-    public void accept(NodeVisitor visitor, @Nullable FileSystemNode parent) {
-        visitor.visitNode(this, parent);
+    public <T> T accept(FileSystemLocationSnapshotTransformer<T> transformer) {
+        return transformer.visitMissing(this);
     }
 
-    public Optional<FileSystemNode> invalidate(VfsRelativePath relativePath, CaseSensitivity caseSensitivity) {
+    public Optional<FileSystemNode> invalidate(VfsRelativePath targetPath, CaseSensitivity caseSensitivity, SnapshotHierarchy.NodeDiffListener diffListener) {
+        diffListener.nodeRemoved(this);
         return Optional.empty();
+    }
+
+    @Override
+    public String toString() {
+        return String.format("%s/%s", super.toString(), getName());
     }
 }

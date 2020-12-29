@@ -20,5 +20,6 @@ import org.gradle.api.logging.Logger;
 import org.gradle.internal.operations.OperationIdentifier;
 
 public interface ContextAwareTaskLogger extends Logger {
+
     void setFallbackBuildOperationId(OperationIdentifier operationIdentifier);
 }

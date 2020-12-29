@@ -30,17 +30,19 @@ import java.util.Map;
 class LatestModuleConflictResolver<T extends ComponentResolutionState> implements ModuleConflictResolver<T> {
     private final Comparator<Version> versionComparator;
     private final VersionParser versionParser;
+    private final boolean releaseBias;
 
-    LatestModuleConflictResolver(VersionComparator versionComparator, VersionParser versionParser) {
+    LatestModuleConflictResolver(VersionComparator versionComparator, VersionParser versionParser, boolean releaseBias) {
         this.versionComparator = versionComparator.asVersionComparator();
         this.versionParser = versionParser;
+        this.releaseBias = releaseBias;
     }
 
     @Override
     public void select(ConflictResolverDetails<T> details) {
         // Find the candidates with the highest base version
         Version baseVersion = null;
-        Map<Version, T> matches = new LinkedHashMap<Version, T>();
+        Map<Version, T> matches = new LinkedHashMap<>();
         for (T candidate : details.getCandidates()) {
             Version version = versionParser.transform(candidate.getVersion());
             if (baseVersion == null || versionComparator.compare(version.getBaseVersion(), baseVersion) > 0) {
@@ -58,18 +60,20 @@ class LatestModuleConflictResolver<T extends ComponentResolutionState> implement
         }
 
         // Work backwards from highest version, return the first candidate with qualified version and release status, or candidate with unqualified version
-        List<Version> sorted = new ArrayList<Version>(matches.keySet());
-        Collections.sort(sorted, Collections.reverseOrder(versionComparator));
+        List<Version> sorted = new ArrayList<>(matches.keySet());
+        sorted.sort(Collections.reverseOrder(versionComparator));
         for (Version version : sorted) {
             T component = matches.get(version);
             if (!version.isQualified()) {
                 details.select(component);
                 return;
             }
-            ComponentResolveMetadata metaData = component.getMetadata();
-            if (metaData != null && "release".equals(metaData.getStatus())) {
-                details.select(component);
-                return;
+            if (releaseBias) {
+                ComponentResolveMetadata metaData = component.getMetadata();
+                if (metaData != null && "release".equals(metaData.getStatus())) {
+                    details.select(component);
+                    return;
+                }
             }
         }
 

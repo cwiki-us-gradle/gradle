@@ -42,18 +42,22 @@ import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.ConfigurableFileTree;
 import org.gradle.api.file.CopySpec;
 import org.gradle.api.file.DeleteSpec;
-import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileTree;
 import org.gradle.api.file.ProjectLayout;
 import org.gradle.api.internal.CollectionCallbackActionDecorator;
+import org.gradle.api.internal.DomainObjectContext;
 import org.gradle.api.internal.DynamicObjectAware;
 import org.gradle.api.internal.GradleInternal;
 import org.gradle.api.internal.MutationGuards;
 import org.gradle.api.internal.ProcessOperations;
+import org.gradle.api.internal.artifacts.DependencyManagementServices;
+import org.gradle.api.internal.artifacts.DependencyResolutionServices;
 import org.gradle.api.internal.artifacts.Module;
 import org.gradle.api.internal.artifacts.configurations.DependencyMetaDataProvider;
+import org.gradle.api.internal.artifacts.dsl.dependencies.UnknownProjectFinder;
 import org.gradle.api.internal.collections.DomainObjectCollectionFactory;
 import org.gradle.api.internal.file.DefaultProjectLayout;
+import org.gradle.api.internal.file.FileCollectionFactory;
 import org.gradle.api.internal.file.FileOperations;
 import org.gradle.api.internal.file.FileResolver;
 import org.gradle.api.internal.initialization.ClassLoaderScope;
@@ -73,13 +77,13 @@ import org.gradle.api.provider.Provider;
 import org.gradle.api.provider.ProviderFactory;
 import org.gradle.api.resources.ResourceHandler;
 import org.gradle.api.tasks.WorkResult;
-import org.gradle.api.tasks.util.PatternSet;
 import org.gradle.configuration.ScriptPluginFactory;
 import org.gradle.configuration.internal.ListenerBuildOperationDecorator;
 import org.gradle.configuration.project.ProjectConfigurationActionContainer;
 import org.gradle.configuration.project.ProjectEvaluator;
 import org.gradle.groovy.scripts.ScriptSource;
 import org.gradle.internal.Actions;
+import org.gradle.internal.Cast;
 import org.gradle.internal.Factories;
 import org.gradle.internal.Factory;
 import org.gradle.internal.deprecation.DeprecationLogger;
@@ -95,6 +99,7 @@ import org.gradle.internal.model.ModelContainer;
 import org.gradle.internal.model.RuleBasedPluginListener;
 import org.gradle.internal.reflect.Instantiator;
 import org.gradle.internal.resource.TextUriResourceLoader;
+import org.gradle.internal.service.DefaultServiceRegistry;
 import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.internal.service.scopes.ServiceRegistryFactory;
 import org.gradle.internal.typeconversion.TypeConverter;
@@ -143,8 +148,8 @@ import static org.gradle.util.GUtil.addMaps;
 
 @NoConventionMapping
 public class DefaultProject extends AbstractPluginAware implements ProjectInternal, DynamicObjectAware,
-    // These two are here to work around https://github.com/gradle/gradle/issues/6027
-    FileOperations, ProcessOperations {
+    // This is here to work around https://github.com/gradle/gradle/issues/6027
+    ProcessOperations {
 
     private static final ModelType<ServiceRegistry> SERVICE_REGISTRY_MODEL_TYPE = ModelType.of(ServiceRegistry.class);
     private static final ModelType<File> FILE_MODEL_TYPE = ModelType.of(File.class);
@@ -169,6 +174,7 @@ public class DefaultProject extends AbstractPluginAware implements ProjectIntern
 
     private final File buildFile;
 
+    @Nullable
     private final ProjectInternal parent;
 
     private final String name;
@@ -613,7 +619,7 @@ public class DefaultProject extends AbstractPluginAware implements ProjectIntern
     }
 
     @Override
-    public ModelContainer getModel() {
+    public ModelContainer<ProjectInternal> getModel() {
         return getMutationState();
     }
 
@@ -629,6 +635,11 @@ public class DefaultProject extends AbstractPluginAware implements ProjectIntern
 
     @Override
     public boolean isScript() {
+        return false;
+    }
+
+    @Override
+    public boolean isRootScript() {
         return false;
     }
 
@@ -791,7 +802,7 @@ public class DefaultProject extends AbstractPluginAware implements ProjectIntern
     @Override
     public String getDisplayName() {
         StringBuilder builder = new StringBuilder();
-        if (parent == null && gradle.getParent() == null) {
+        if (parent == null && gradle.isRootBuild()) {
             builder.append("root project '");
             builder.append(name);
             builder.append('\'');
@@ -944,11 +955,6 @@ public class DefaultProject extends AbstractPluginAware implements ProjectIntern
     }
 
     @Override
-    public PatternSet patternSet() {
-        return getFileOperations().patternSet();
-    }
-
-    @Override
     public <T> Provider<T> provider(Callable<T> value) {
         return getProviders().provider(value);
     }
@@ -1018,14 +1024,14 @@ public class DefaultProject extends AbstractPluginAware implements ProjectIntern
     @Override
     public void beforeEvaluate(Closure closure) {
         assertMutatingMethodAllowed("beforeEvaluate(Closure)");
-        evaluationListener.add(new ClosureBackedMethodInvocationDispatch("beforeEvaluate", getListenerBuildOperationDecorator().decorate("Project.beforeEvaluate", closure)));
+        evaluationListener.add(new ClosureBackedMethodInvocationDispatch("beforeEvaluate", getListenerBuildOperationDecorator().decorate("Project.beforeEvaluate", Cast.<Closure<?>>uncheckedNonnullCast(closure))));
     }
 
     @Override
     public void afterEvaluate(Closure closure) {
         assertMutatingMethodAllowed("afterEvaluate(Closure)");
         maybeNagDeprecationOfAfterEvaluateAfterProjectIsEvaluated("afterEvaluate(Closure)");
-        evaluationListener.add(new ClosureBackedMethodInvocationDispatch("afterEvaluate", getListenerBuildOperationDecorator().decorate("Project.afterEvaluate", closure)));
+        evaluationListener.add(new ClosureBackedMethodInvocationDispatch("afterEvaluate", getListenerBuildOperationDecorator().decorate("Project.afterEvaluate", Cast.<Closure<?>>uncheckedNonnullCast(closure))));
     }
 
     private void maybeNagDeprecationOfAfterEvaluateAfterProjectIsEvaluated(String methodPrototype) {
@@ -1182,17 +1188,17 @@ public class DefaultProject extends AbstractPluginAware implements ProjectIntern
 
     @Override
     public void subprojects(Closure configureClosure) {
-        getProjectConfigurator().subprojects(getSubprojects(), ConfigureUtil.<Project>configureUsing(configureClosure));
+        getProjectConfigurator().subprojects(getSubprojects(), ConfigureUtil.configureUsing(configureClosure));
     }
 
     @Override
     public void allprojects(Closure configureClosure) {
-        getProjectConfigurator().allprojects(getAllprojects(), ConfigureUtil.<Project>configureUsing(configureClosure));
+        getProjectConfigurator().allprojects(getAllprojects(), ConfigureUtil.configureUsing(configureClosure));
     }
 
     @Override
     public Project project(String path, Closure configureClosure) {
-        return getProjectConfigurator().project(project(path), ConfigureUtil.<Project>configureUsing(configureClosure));
+        return getProjectConfigurator().project(project(path), ConfigureUtil.configureUsing(configureClosure));
     }
 
     @Override
@@ -1268,7 +1274,7 @@ public class DefaultProject extends AbstractPluginAware implements ProjectIntern
 
     @Override
     public Task task(Map options, String task) {
-        return taskContainer.create(addMaps(options, singletonMap(Task.TASK_NAME, task)));
+        return taskContainer.create(addMaps(Cast.uncheckedNonnullCast(options), singletonMap(Task.TASK_NAME, task)));
     }
 
     public Task task(Map options, Object task) {
@@ -1277,7 +1283,7 @@ public class DefaultProject extends AbstractPluginAware implements ProjectIntern
 
     @Override
     public Task task(Map options, String task, Closure configureClosure) {
-        return taskContainer.create(addMaps(options, singletonMap(Task.TASK_NAME, task))).configure(configureClosure);
+        return taskContainer.create(addMaps(Cast.uncheckedNonnullCast(options), singletonMap(Task.TASK_NAME, task))).configure(configureClosure);
     }
 
     public Task task(Map options, Object task, Closure configureClosure) {
@@ -1462,22 +1468,108 @@ public class DefaultProject extends AbstractPluginAware implements ProjectIntern
         MutationGuards.of(getProjectConfigurator()).assertMutationAllowed(methodName, this, Project.class);
     }
 
-    // These are here just so that ProjectInternal can implement FileOperations to work around https://github.com/gradle/gradle/issues/6027
-
-    @Override
-    @Deprecated
-    public ConfigurableFileCollection configurableFiles(Object... paths) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    @Deprecated
-    public FileCollection immutableFiles(Object... paths) {
-        throw new UnsupportedOperationException();
-    }
-
     @Override
     public ProjectState getMutationState() {
         return container;
+    }
+
+    @Override
+    public DetachedResolver newDetachedResolver() {
+        DependencyManagementServices dms = getServices().get(DependencyManagementServices.class);
+        InstantiatorFactory instantiatorFactory = services.get(InstantiatorFactory.class);
+        DefaultServiceRegistry lookup = new DefaultServiceRegistry(services);
+        lookup.addProvider(new Object() {
+            public DependencyResolutionServices createServices() {
+                return dms.create(
+                    services.get(FileResolver.class),
+                    services.get(FileCollectionFactory.class),
+                    services.get(DependencyMetaDataProvider.class),
+                    new UnknownProjectFinder("Detached resolvers do not support resolving projects"),
+                    new DetachedDependencyResolutionDomainObjectContext(services.get(DomainObjectContext.class))
+                );
+            }
+        });
+        return instantiatorFactory.decorate(lookup).newInstance(
+            LocalDetachedResolver.class
+        );
+    }
+
+    public static class LocalDetachedResolver implements DetachedResolver {
+        private final DependencyResolutionServices resolutionServices;
+
+        @Inject
+        public LocalDetachedResolver(DependencyResolutionServices resolutionServices) {
+            this.resolutionServices = resolutionServices;
+        }
+
+        @Override
+        public RepositoryHandler getRepositories() {
+            return resolutionServices.getResolveRepositoryHandler();
+        }
+
+        @Override
+        public DependencyHandler getDependencies() {
+            return resolutionServices.getDependencyHandler();
+        }
+
+        @Override
+        public ConfigurationContainer getConfigurations() {
+            return resolutionServices.getConfigurationContainer();
+        }
+    }
+
+    private static class DetachedDependencyResolutionDomainObjectContext implements DomainObjectContext {
+        private final DomainObjectContext delegate;
+
+        private DetachedDependencyResolutionDomainObjectContext(DomainObjectContext delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Path identityPath(String name) {
+            return delegate.identityPath(name);
+        }
+
+        @Override
+        public Path projectPath(String name) {
+            return delegate.projectPath(name);
+        }
+
+        @Override
+        @Nullable
+        public Path getProjectPath() {
+            return delegate.getProjectPath();
+        }
+
+        @Override
+        @Nullable
+        public ProjectInternal getProject() {
+            return delegate.getProject();
+        }
+
+        @Override
+        public ModelContainer<?> getModel() {
+            return delegate.getModel();
+        }
+
+        @Override
+        public Path getBuildPath() {
+            return delegate.getBuildPath();
+        }
+
+        @Override
+        public boolean isRootScript() {
+            return delegate.isRootScript();
+        }
+
+        @Override
+        public boolean isScript() {
+            return delegate.isScript();
+        }
+
+        @Override
+        public boolean isDetachedState() {
+            return true;
+        }
     }
 }

@@ -46,7 +46,7 @@ fun File.walkReproducibly(): Sequence<File> = sequence {
     while (directories.isNotEmpty()) {
         val subDirectories = mutableListOf<File>()
         directories.forEach { dir ->
-            dir.listFiles()?.sortedBy(fileName)?.partition { it.isDirectory }?.let { (childDirectories, childFiles) ->
+            dir.listFilesOrdered().partition { it.isDirectory }.let { (childDirectories, childFiles) ->
                 yieldAll(childFiles)
                 childDirectories.let {
                     yieldAll(it)
@@ -57,10 +57,6 @@ fun File.walkReproducibly(): Sequence<File> = sequence {
         directories = subDirectories
     }
 }
-
-
-private
-val fileName: (File) -> String = { it.name }
 
 
 private
@@ -93,10 +89,12 @@ fun zipTo(outputStream: OutputStream, entries: Sequence<Pair<String, ByteArray>>
     ZipOutputStream(outputStream).use { zos ->
         entries.forEach { entry ->
             val (path, bytes) = entry
-            zos.putNextEntry(ZipEntry(path).apply {
-                time = CONSTANT_TIME_FOR_ZIP_ENTRIES
-                size = bytes.size.toLong()
-            })
+            zos.putNextEntry(
+                ZipEntry(path).apply {
+                    time = CONSTANT_TIME_FOR_ZIP_ENTRIES
+                    size = bytes.size.toLong()
+                }
+            )
             zos.write(bytes)
             zos.closeEntry()
         }

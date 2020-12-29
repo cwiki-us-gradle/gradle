@@ -17,16 +17,20 @@
 package org.gradle.smoketests
 
 import org.apache.commons.io.FileUtils
-import org.gradle.cache.internal.DefaultGeneratedGradleJarCache
-import org.gradle.integtests.fixtures.instantexecution.InstantExecutionBuildOperationsFixture
+import org.gradle.initialization.StartParameterBuildOptions.ConfigurationCacheMaxProblemsOption
+import org.gradle.initialization.StartParameterBuildOptions.ConfigurationCacheOption
+import org.gradle.initialization.StartParameterBuildOptions.ConfigurationCacheProblemsOption
+import org.gradle.initialization.StartParameterBuildOptions.ConfigurationCacheQuietOption
 import org.gradle.integtests.fixtures.BuildOperationTreeFixture
 import org.gradle.integtests.fixtures.RepoScriptBlockUtil
+import org.gradle.integtests.fixtures.configurationcache.ConfigurationCacheBuildOperationsFixture
 import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
-import org.gradle.integtests.fixtures.executer.InstantExecutionGradleExecuter
 import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext
 import org.gradle.integtests.fixtures.versions.AndroidGradlePluginVersions
+import org.gradle.integtests.fixtures.versions.KotlinGradlePluginVersions
 import org.gradle.internal.featurelifecycle.LoggingDeprecatedFeatureHandler
 import org.gradle.internal.operations.trace.BuildOperationTrace
+import org.gradle.test.fixtures.dsl.GradleDsl
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.testkit.runner.BuildResult
 import org.gradle.testkit.runner.GradleRunner
@@ -37,13 +41,17 @@ import spock.lang.Specification
 
 import static org.gradle.integtests.fixtures.RepoScriptBlockUtil.createMirrorInitScript
 import static org.gradle.integtests.fixtures.RepoScriptBlockUtil.gradlePluginRepositoryMirrorUrl
+import static org.gradle.test.fixtures.dsl.GradleDsl.GROOVY
 import static org.gradle.test.fixtures.server.http.MavenHttpPluginRepository.PLUGIN_PORTAL_OVERRIDE_URL_PROPERTY
 
 abstract class AbstractSmokeTest extends Specification {
 
     protected static final AndroidGradlePluginVersions AGP_VERSIONS = new AndroidGradlePluginVersions()
+    protected static final KotlinGradlePluginVersions KOTLIN_VERSIONS = new KotlinGradlePluginVersions()
     protected static final String AGP_3_ITERATION_MATCHER = ".*agp=3\\..*"
     protected static final String AGP_4_0_ITERATION_MATCHER = ".*agp=4\\.0\\..*"
+    protected static final String AGP_4_1_ITERATION_MATCHER = ".*agp=4\\.1\\..*"
+    protected static final String AGP_4_2_ITERATION_MATCHER = ".*agp=4\\.2\\..*"
 
     static class TestedVersions {
         /**
@@ -52,40 +60,40 @@ abstract class AbstractSmokeTest extends Specification {
          */
 
         // https://plugins.gradle.org/plugin/nebula.dependency-recommender
-        static nebulaDependencyRecommender = "9.0.2"
+        static nebulaDependencyRecommender = "9.1.1"
 
         // https://plugins.gradle.org/plugin/nebula.plugin-plugin
-        static nebulaPluginPlugin = "14.2.1"
+        static nebulaPluginPlugin = "14.5.0"
 
         // https://plugins.gradle.org/plugin/nebula.lint
-        static nebulaLint = "16.2.3"
+        static nebulaLint = "16.15.9"
 
         // https://plugins.gradle.org/plugin/nebula.dependency-lock
-        static nebulaDependencyLock = Versions.of("7.0.1", "7.1.2", "7.3.4", "7.6.7", "8.0.0", "8.3.0", "8.7.3", "8.8.0")
+        static nebulaDependencyLock = Versions.of("8.8.0", "9.4.1", "10.1.0", "11.1.0")
 
         // https://plugins.gradle.org/plugin/nebula.resolution-rules
-        static nebulaResolutionRules = "7.5.0"
+        static nebulaResolutionRules = "7.8.0"
 
         // https://plugins.gradle.org/plugin/com.github.johnrengelman.shadow
-        static shadow = Versions.of("4.0.4", "5.2.0")
+        static shadow = Versions.of("4.0.4", "5.2.0", "6.0.0", "6.1.0")
 
         // https://github.com/asciidoctor/asciidoctor-gradle-plugin/releases
-        static asciidoctor = Versions.of("2.3.0", "3.0.0", "3.1.0")
+        static asciidoctor = Versions.of("2.3.0", "3.0.0", "3.3.0")
 
         // https://plugins.gradle.org/plugin/com.github.spotbugs
-        static spotbugs = "4.0.1"
+        static spotbugs = "4.6.0"
 
         // https://plugins.gradle.org/plugin/com.bmuschko.docker-java-application
-        static docker = "6.1.4"
+        static docker = "6.6.1"
 
         // https://plugins.gradle.org/plugin/com.bmuschko.tomcat
         static tomcat = "2.5"
 
         // https://plugins.gradle.org/plugin/io.spring.dependency-management
-        static springDependencyManagement = "1.0.9.RELEASE"
+        static springDependencyManagement = "1.0.10.RELEASE"
 
         // https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-gradle-plugin
-        static springBoot = "2.2.5.RELEASE"
+        static springBoot = "2.4.0"
 
         // https://developer.android.com/studio/releases/build-tools
         static androidTools = "29.0.3"
@@ -93,42 +101,39 @@ abstract class AbstractSmokeTest extends Specification {
         static androidGradle = Versions.of(*AGP_VERSIONS.latestsPlusNightly)
 
         // https://search.maven.org/search?q=g:org.jetbrains.kotlin%20AND%20a:kotlin-project&core=gav
-        static kotlin = Versions.of('1.3.21', '1.3.31', '1.3.41', '1.3.50', '1.3.61', '1.3.71')
+        static kotlin = Versions.of(*KOTLIN_VERSIONS.latests.findAll {
+            def lowerCaseVersion = it.toLowerCase(Locale.US)
+            !lowerCaseVersion.contains('-m') && !lowerCaseVersion.contains('-rc') && !(lowerCaseVersion.contains('-beta'))
+        })
 
         // https://plugins.gradle.org/plugin/org.gretty
-        static gretty = "3.0.1"
-
-        // https://plugins.gradle.org/plugin/com.eriwen.gradle.js
-        static gradleJs = "2.14.1"
-
-        // https://plugins.gradle.org/plugin/com.eriwen.gradle.css
-        static gradleCss = "2.14.0"
+        static gretty = "3.0.3"
 
         // https://plugins.gradle.org/plugin/org.ajoberstar.grgit
-        static grgit = "4.0.1"
+        static grgit = "4.1.0"
 
         // https://plugins.gradle.org/plugin/com.github.ben-manes.versions
-        static gradleVersions = "0.28.0"
+        static gradleVersions = "0.36.0"
 
         // https://plugins.gradle.org/plugin/org.gradle.playframework
-        static playframework = "0.9"
+        static playframework = "0.10"
 
         // https://plugins.gradle.org/plugin/net.ltgt.errorprone
-        static errorProne = "1.1.1"
+        static errorProne = "1.3.0"
 
         // https://plugins.gradle.org/plugin/com.google.protobuf
-        static protobufPlugin = "0.8.11"
-        static protobufTools = "3.11.1"
+        static protobufPlugin = "0.8.14"
+        static protobufTools = "3.13.0"
 
         // https://plugins.gradle.org/plugin/org.gradle.test-retry
-        static testRetryPlugin = "1.1.3"
+        static testRetryPlugin = "1.1.9"
 
         // https://plugins.gradle.org/plugin/com.jfrog.artifactory
-        static artifactoryPlugin = "4.14.1"
+        static artifactoryPlugin = "4.18.0"
         static artifactoryRepoOSSVersion = "6.16.0"
 
         // https://plugins.gradle.org/plugin/io.freefair.aspectj
-        static aspectj = "4.1.6"
+        static aspectj = "5.3.0"
     }
 
     static class Versions implements Iterable<String> {
@@ -140,6 +145,10 @@ abstract class AbstractSmokeTest extends Specification {
 
         String latest() {
             versions.last()
+        }
+
+        String latestStartsWith(String prefix) {
+            return versions.reverse().find { it.startsWith(prefix) }
         }
 
         private Versions(String... given) {
@@ -187,23 +196,27 @@ abstract class AbstractSmokeTest extends Specification {
             .withTestKitDir(IntegrationTestBuildContext.INSTANCE.gradleUserHomeDir)
             .withProjectDir(testProjectDir.root)
             .forwardOutput()
-            .withArguments(tasks.toList() + outputParameters() + repoMirrorParameters()) as DefaultGradleRunner
-        gradleRunner.withJvmArguments(
-            ["-Xmx8g", "-XX:MaxMetaspaceSize=1024m", "-XX:+HeapDumpOnOutOfMemoryError"] + buildContextParameters()
-        )
+            .withArguments(
+                tasks.toList() + outputParameters() + repoMirrorParameters() + configurationCacheParameters()
+            ) as DefaultGradleRunner
+        gradleRunner.withJvmArguments(["-Xmx8g", "-XX:MaxMetaspaceSize=1024m", "-XX:+HeapDumpOnOutOfMemoryError"])
     }
 
-    private List<String> buildContextParameters() {
+    private List<String> configurationCacheParameters() {
         List<String> parameters = []
-        if (GradleContextualExecuter.isInstant()) {
-            parameters += InstantExecutionGradleExecuter.INSTANT_EXECUTION_ARGS
-            parameters += ["-D${BuildOperationTrace.SYSPROP}=${buildOperationTracePath()}".toString()]
+        if (GradleContextualExecuter.isConfigCache()) {
+            def maxProblems = maxConfigurationCacheProblems()
+            parameters += [
+                "--${ConfigurationCacheOption.LONG_OPTION}".toString(),
+                "-D${ConfigurationCacheMaxProblemsOption.PROPERTY_NAME}=$maxProblems".toString(),
+                "-D${ConfigurationCacheQuietOption.PROPERTY_NAME}=true".toString(),
+                "-D${BuildOperationTrace.SYSPROP}=${buildOperationTracePath()}".toString()
+            ]
+            if (maxProblems > 0) {
+                parameters += ["--${ConfigurationCacheProblemsOption.LONG_OPTION}=warn".toString(),]
+            }
         }
-        def generatedApiJarCacheDir = IntegrationTestBuildContext.INSTANCE.gradleGeneratedApiJarCacheDir
-        if (generatedApiJarCacheDir == null) {
-            return parameters
-        }
-        return parameters + ["-D${DefaultGeneratedGradleJarCache.BASE_DIR_OVERRIDE_PROPERTY}=${generatedApiJarCacheDir.absolutePath}" as String]
+        return parameters
     }
 
     private static List<String> outputParameters() {
@@ -223,20 +236,28 @@ abstract class AbstractSmokeTest extends Specification {
         ]
     }
 
-    protected void assertInstantExecutionStateStored() {
-        if (GradleContextualExecuter.isInstant()) {
-            newInstantExecutionBuildOperationsFixture().assertStateStored()
+    protected int maxConfigurationCacheProblems() {
+        return 0
+    }
+
+    protected void assertConfigurationCacheStateStored() {
+        if (GradleContextualExecuter.isConfigCache()) {
+            newConfigurationCacheBuildOperationsFixture().assertStateStored()
         }
     }
 
-    protected void assertInstantExecutionStateLoaded() {
-        if (GradleContextualExecuter.isInstant()) {
-            newInstantExecutionBuildOperationsFixture().assertStateLoaded()
+    protected void assertConfigurationCacheStateLoaded() {
+        if (GradleContextualExecuter.isConfigCache()) {
+            newConfigurationCacheBuildOperationsFixture().assertStateLoaded()
         }
     }
 
-    private InstantExecutionBuildOperationsFixture newInstantExecutionBuildOperationsFixture() {
-        return new InstantExecutionBuildOperationsFixture(new BuildOperationTreeFixture(BuildOperationTrace.read(buildOperationTracePath())))
+    private ConfigurationCacheBuildOperationsFixture newConfigurationCacheBuildOperationsFixture() {
+        return new ConfigurationCacheBuildOperationsFixture(
+            new BuildOperationTreeFixture(
+                BuildOperationTrace.read(buildOperationTracePath())
+            )
+        )
     }
 
     private String buildOperationTracePath() {
@@ -269,16 +290,16 @@ abstract class AbstractSmokeTest extends Specification {
         file.text = text
     }
 
-    protected static String jcenterRepository() {
-        RepoScriptBlockUtil.jcenterRepository()
+    protected static String jcenterRepository(GradleDsl dsl = GROOVY) {
+        RepoScriptBlockUtil.jcenterRepository(dsl)
     }
 
-    protected static String mavenCentralRepository() {
-        RepoScriptBlockUtil.mavenCentralRepository()
+    protected static String mavenCentralRepository(GradleDsl dsl = GROOVY) {
+        RepoScriptBlockUtil.mavenCentralRepository(dsl)
     }
 
-    protected static String googleRepository() {
-        RepoScriptBlockUtil.googleRepository()
+    protected static String googleRepository(GradleDsl dsl = GROOVY) {
+        RepoScriptBlockUtil.googleRepository(dsl)
     }
 
     protected static void expectNoDeprecationWarnings(BuildResult result) {
@@ -300,9 +321,14 @@ abstract class AbstractSmokeTest extends Specification {
                 foundDeprecations++
                 return
             }
-            assert !line.contains("has been deprecated and is scheduled to be removed in Gradle"), "Found an unexpected deprecation warning on line ${lineIndex + 1}: $line"
+            assert !containsDeprecationWarning(line), "Found an unexpected deprecation warning on line ${lineIndex + 1}: $line"
         }
         assert remainingWarnings.empty, "Expected ${remainingWarnings.size()} deprecation warnings, found ${foundDeprecations} deprecation warnings:\n${remainingWarnings.collect { " - $it" }.join("\n")}"
+    }
+
+    private static boolean containsDeprecationWarning(String line) {
+        line.contains("has been deprecated and is scheduled to be removed in Gradle") ||
+            line.contains("has been deprecated. This is scheduled to be removed in Gradle")
     }
 
     void copyRemoteProject(String remoteProject, File targetDir) {

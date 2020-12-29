@@ -18,6 +18,7 @@ package org.gradle.plugins.ide.eclipse.model.internal;
 
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.tasks.TaskDependency;
+import org.gradle.plugins.ide.eclipse.internal.EclipsePluginConstants;
 import org.gradle.plugins.ide.eclipse.internal.EclipseProjectMetadata;
 import org.gradle.plugins.ide.eclipse.model.FileReference;
 import org.gradle.plugins.ide.eclipse.model.ProjectDependency;
@@ -30,11 +31,20 @@ public class ProjectDependencyBuilder {
         this.ideArtifactRegistry = ideArtifactRegistry;
     }
 
-    public ProjectDependency build(ProjectComponentIdentifier componentIdentifier, FileReference publication, TaskDependency buildDependencies) {
+    public ProjectDependency build(ProjectComponentIdentifier componentIdentifier, FileReference publication, TaskDependency buildDependencies, boolean asJavaModule) {
         ProjectDependency dependency = buildProjectDependency(determineTargetProjectPath(componentIdentifier));
         dependency.setPublication(publication);
         if (buildDependencies != null) {
             dependency.buildDependencies(buildDependencies);
+        }
+        if (asJavaModule) {
+            dependency.getEntryAttributes().put(EclipsePluginConstants.MODULE_ATTRIBUTE_KEY, EclipsePluginConstants.MODULE_ATTRIBUTE_VALUE);
+        }
+
+        if (containsTestFixtures(componentIdentifier)) {
+            dependency.getEntryAttributes().put(EclipsePluginConstants.WITHOUT_TEST_CODE_ATTRIBUTE_KEY, "false");
+        } else {
+            dependency.getEntryAttributes().put(EclipsePluginConstants.WITHOUT_TEST_CODE_ATTRIBUTE_KEY, "true");
         }
         return dependency;
     }
@@ -46,6 +56,11 @@ public class ProjectDependencyBuilder {
     public String determineTargetProjectName(ProjectComponentIdentifier id) {
         EclipseProjectMetadata eclipseProject = ideArtifactRegistry.getIdeProject(EclipseProjectMetadata.class, id);
         return eclipseProject == null ? id.getProjectName() : eclipseProject.getName();
+    }
+
+    private boolean containsTestFixtures(ProjectComponentIdentifier id) {
+        EclipseProjectMetadata eclipseProject = ideArtifactRegistry.getIdeProject(EclipseProjectMetadata.class, id);
+        return eclipseProject != null ? eclipseProject.hasJavaTestFixtures() : false;
     }
 
     private ProjectDependency buildProjectDependency(String path) {

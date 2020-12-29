@@ -9,7 +9,7 @@ import org.gradle.api.plugins.ExtraPropertiesExtension
 
 import org.hamcrest.CoreMatchers.nullValue
 
-import org.junit.Assert.assertThat
+import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Test
 
 
@@ -80,7 +80,7 @@ class ExtraPropertiesExtensionsTest {
         val extra = mock<ExtraPropertiesExtension>()
 
         run {
-            val property by extra { null as Int? }
+            val property by extra { null }
 
             // property is set eagerly
             verify(extra).set("property", null)

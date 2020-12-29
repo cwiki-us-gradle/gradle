@@ -26,10 +26,12 @@ import org.gradle.api.tasks.TaskDependency
 import org.gradle.composite.internal.IncludedBuildTaskGraph
 import org.gradle.internal.resources.ResourceLockState
 import org.gradle.internal.work.WorkerLeaseRegistry
+import org.gradle.util.Path
 import org.gradle.util.TextUtil
 import spock.lang.Issue
 import spock.lang.Unroll
 
+import static org.gradle.internal.snapshot.CaseSensitivity.CASE_SENSITIVE
 import static org.gradle.util.TextUtil.toPlatformLineSeparators
 import static org.gradle.util.WrapUtil.toList
 
@@ -40,7 +42,7 @@ class DefaultExecutionPlanTest extends AbstractExecutionPlanSpec {
     def setup() {
         def taskNodeFactory = new TaskNodeFactory(thisBuild, Stub(IncludedBuildTaskGraph))
         def dependencyResolver = new TaskDependencyResolver([new TaskNodeDependencyResolver(taskNodeFactory)])
-        executionPlan = new DefaultExecutionPlan(thisBuild, taskNodeFactory, dependencyResolver)
+        executionPlan = new DefaultExecutionPlan(Path.ROOT.toString(), taskNodeFactory, dependencyResolver, nodeValidator, new RelatedLocations(CASE_SENSITIVE), new RelatedLocations(CASE_SENSITIVE))
         _ * workerLease.tryLock() >> true
     }
 
@@ -577,6 +579,26 @@ class DefaultExecutionPlanTest extends AbstractExecutionPlanSpec {
 """)
     }
 
+    @Issue("https://github.com/gradle/gradle/issues/2293")
+    def "circular dependency detected with finalizedBy cycle in the graph"() {
+        Task a = createTask("a")
+        Task b = createTask("b")
+        relationships(a, finalizedBy: [b])
+        relationships(b, finalizedBy: [b])
+
+        when:
+        addToGraphAndPopulate([a])
+
+        then:
+        CircularReferenceException e = thrown()
+        e.message == toPlatformLineSeparators("""Circular dependency between the following tasks:
+:b
+\\--- :b (*)
+
+(*) - details omitted (listed previously)
+""")
+    }
+
     def "stops returning tasks on task execution failure"() {
         def failures = []
         RuntimeException exception = new RuntimeException("failure")
@@ -829,11 +851,11 @@ class DefaultExecutionPlanTest extends AbstractExecutionPlanSpec {
         filtered(b)
     }
 
-    def "nodes added to the graph are executed in dependency order"() {
+    def "required nodes added to the graph are executed in dependency order"() {
         given:
-        def node1 = node()
-        def node2 = node(node1)
-        def node3 = node(node2)
+        def node1 = requiredNode()
+        def node2 = requiredNode(node1)
+        def node3 = requiredNode(node2)
         executionPlan.addNodes([node3, node1, node2])
 
         when:
@@ -843,9 +865,17 @@ class DefaultExecutionPlanTest extends AbstractExecutionPlanSpec {
         executesNodes(node1, node2, node3)
     }
 
+
+    private Node requiredNode(Node... dependencies) {
+        node(dependencies).tap {
+            require()
+            dependenciesProcessed()
+        }
+    }
+
     private Node node(Node... dependencies) {
         def action = Stub(WorkNodeAction)
-        _ * action.project >> null
+        _ * action.owningProject >> null
         def node = new ActionNode(action)
         dependencies.each {
             node.addDependencySuccessor(it)

@@ -16,7 +16,7 @@
 package org.gradle.integtests.publish.ivy
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 
 class IvyEarProjectPublishIntegrationTest extends AbstractIntegrationSpec {
 
@@ -25,8 +25,8 @@ class IvyEarProjectPublishIntegrationTest extends AbstractIntegrationSpec {
         executer.noDeprecationChecks()
     }
 
-    @ToBeFixedForInstantExecution
-    public void "publishes EAR only for mixed java and WAR and EAR project"() {
+    @ToBeFixedForConfigurationCache
+    void "publishes EAR only for mixed java and WAR and EAR project"() {
         given:
         file("settings.gradle") << "rootProject.name = 'publishTest' "
 
@@ -42,8 +42,8 @@ version = '1.9'
 ${mavenCentralRepository()}
 
 dependencies {
-    compile "commons-collections:commons-collections:3.2.2"
-    runtime "commons-io:commons-io:1.4"
+    implementation "commons-collections:commons-collections:3.2.2"
+    runtimeOnly "commons-io:commons-io:1.4"
 }
 
 uploadArchives {

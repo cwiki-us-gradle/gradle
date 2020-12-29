@@ -17,6 +17,7 @@
 package org.gradle.integtests.fixtures
 
 import org.gradle.api.internal.plugins.DefaultPluginManager
+import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
 import org.gradle.util.GUtil
 import org.junit.Assume
 
@@ -40,17 +41,16 @@ abstract class WellBehavedPluginTest extends AbstractPluginIntegrationTest {
         return "assemble"
     }
 
-    @ToBeFixedForInstantExecution(bottomSpecs = [
-        "HelpTasksPluginIntegrationTest",
+    @ToBeFixedForConfigurationCache(bottomSpecs = [
         "BuildDashboardPluginIntegrationTest",
-        "JavaGradlePluginPluginIntegrationTest",
-        "ApplicationPluginIntegrationTest",
+        "GroovyPluginGoodBehaviourTest",
+        "ScalaPluginGoodBehaviourTest",
+        "AntlrPluginIntegrationTest",
+        "PlayApplicationPluginGoodBehaviourIntegrationTest",
         "CheckstylePluginIntegrationTest",
-        "CodeNarcPluginIntegrationTest",
         "PmdPluginIntegrationTest",
         "CppLibraryPluginIntegrationTest",
         "CppApplicationPluginIntegrationTest",
-        "SwiftApplicationPluginIntegrationTest",
         "XcodePluginIntegrationTest",
         "IdeaPluginGoodBehaviourTest"
     ])
@@ -62,7 +62,6 @@ abstract class WellBehavedPluginTest extends AbstractPluginIntegrationTest {
         succeeds mainTask
     }
 
-    @ToBeFixedForInstantExecution
     def "plugin does not force creation of build dir during configuration"() {
         given:
         applyPlugin()
@@ -74,17 +73,16 @@ abstract class WellBehavedPluginTest extends AbstractPluginIntegrationTest {
         !file("build").exists()
     }
 
-    @ToBeFixedForInstantExecution(bottomSpecs = [
-        "HelpTasksPluginIntegrationTest",
+    @ToBeFixedForConfigurationCache(bottomSpecs = [
         "BuildDashboardPluginIntegrationTest",
-        "JavaGradlePluginPluginIntegrationTest",
-        "ApplicationPluginIntegrationTest",
+        "GroovyPluginGoodBehaviourTest",
+        "ScalaPluginGoodBehaviourTest",
+        "AntlrPluginIntegrationTest",
+        "PlayApplicationPluginGoodBehaviourIntegrationTest",
         "CheckstylePluginIntegrationTest",
-        "CodeNarcPluginIntegrationTest",
         "PmdPluginIntegrationTest",
         "CppLibraryPluginIntegrationTest",
         "CppApplicationPluginIntegrationTest",
-        "SwiftApplicationPluginIntegrationTest",
         "XcodePluginIntegrationTest",
         "IdeaPluginGoodBehaviourTest"
     ])
@@ -120,18 +118,96 @@ abstract class WellBehavedPluginTest extends AbstractPluginIntegrationTest {
         applyPlugin()
 
         buildFile << """
-            def configuredTasks = []
             tasks.configureEach {
-                configuredTasks << it
-            }
-
-            gradle.buildFinished {
-                def configuredTaskPaths = configuredTasks*.path
-
-                assert configuredTaskPaths == [':help']
+                println("configuring \${it.path}")
             }
         """
-        expect:
+
+        when:
         succeeds("help")
+
+        then:
+        def appliesBasePlugin = !(pluginName in [
+            'build-dashboard', 'build-init', 'help-tasks', 'wrapper',
+            'ivy-publish', 'maven-publish', 'publishing',
+            'eclipse', 'idea', 'version-catalog'
+        ])
+        if (GradleContextualExecuter.isConfigCache() && appliesBasePlugin) {
+            assert output.count("configuring :") == 2
+            outputContains("configuring :help")
+            // because capturing registered outputs for stale output cleanup forces configuring clean
+            outputContains("configuring :clean")
+        } else {
+            assert output.count("configuring :") == 1
+            outputContains("configuring :help")
+        }
+    }
+
+    @ToBeFixedForConfigurationCache(bottomSpecs = [
+        "AntlrPluginIntegrationTest",
+        "ApplicationPluginIntegrationTest",
+        "AssemblerLangPluginIntegrationTest",
+        "AssemblerPluginIntegrationTest",
+        "BasePluginGoodBehaviourTest",
+        "CLangPluginIntegrationTest",
+        "CPluginIntegrationTest",
+        "CUnitPluginIntegrationTest",
+        "CoffeeScriptBasePluginIntegrationTest",
+        "CppApplicationPluginIntegrationTest",
+        "CppLangPluginIntegrationTest",
+        "CppLibraryPluginIntegrationTest",
+        "CppPluginIntegrationTest",
+        "CppUnitTestPluginIntegrationTest",
+        "DistributionPluginIntegrationTest",
+        "EarPluginGoodBehaviourTest",
+        "EnvJsPluginIntegrationTest",
+        "GoogleTestPluginIntegrationTest",
+        "GroovyPluginGoodBehaviourTest",
+        "JUnitTestSuitePluginGoodBehaviourTest",
+        "JavaBasePluginGoodBehaviourTest",
+        "JavaGradlePluginPluginIntegrationTest",
+        "JavaLanguagePluginGoodBehaviourTest",
+        "JavaLibraryDistributionIntegrationTest",
+        "JavaPluginGoodBehaviourTest",
+        "JavaScriptBasePluginIntegrationTest",
+        "JsHintPluginIntegrationTest",
+        "MavenPluginGoodBehaviourTest",
+        "NativeComponentPluginIntegrationTest",
+        "ObjectiveCLangPluginIntegrationTest",
+        "ObjectiveCPluginIntegrationTest",
+        "ObjectiveCppLangPluginIntegrationTest",
+        "ObjectiveCppPluginIntegrationTest",
+        "PlayCoffeeScriptPluginGoodBehaviourIntegrationTest",
+        "PlayJavaScriptPluginGoodBehaviourIntegrationTest",
+        "RhinoPluginIntegrationTest",
+        "ScalaLanguagePluginGoodBehaviourTest",
+        "ScalaPluginGoodBehaviourTest",
+        "SwiftApplicationPluginIntegrationTest",
+        "SwiftLibraryPluginIntegrationTest",
+        "WarPluginGoodBehaviourTest",
+        "WindowsResourceScriptPluginIntegrationTest",
+        "WindowsResourcesPluginIntegrationTest",
+    ])
+    def "does not realize all possible tasks if the build is included"() {
+        Assume.assumeFalse(pluginName in ['xctest', 'visual-studio', 'xcode', 'play-application'])
+
+        def includedBuildFile = file("included/build.gradle")
+
+        settingsFile << """
+            includeBuild 'included'
+        """
+
+        applyPlugin(includedBuildFile)
+        includedBuildFile << """
+            tasks.configureEach {
+                println("configuring \${it.path}")
+            }
+        """
+
+        when:
+        succeeds("help")
+
+        then:
+        assert output.count("configuring :") == 0
     }
 }

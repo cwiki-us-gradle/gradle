@@ -30,6 +30,7 @@ import org.gradle.api.plugins.antlr.internal.AntlrSpecFactory;
 import org.gradle.api.plugins.antlr.internal.AntlrWorkerManager;
 import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Classpath;
+import org.gradle.api.tasks.IgnoreEmptyDirectories;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
@@ -72,7 +73,7 @@ public class AntlrTask extends SourceTask {
 
     private File outputDirectory;
     private String maxHeapSize;
-    private SourceDirectorySet sourceDirectorySet;
+    private FileCollection sourceSetDirectories;
     private final FileCollection stableSources = getProject().files((Callable<Object>) this::getSource);
 
     /**
@@ -234,7 +235,7 @@ public class AntlrTask extends SourceTask {
         }
 
         AntlrWorkerManager manager = new AntlrWorkerManager();
-        AntlrSpec spec = new AntlrSpecFactory().create(this, grammarFiles, sourceDirectorySet);
+        AntlrSpec spec = new AntlrSpecFactory().create(this, grammarFiles, sourceSetDirectories);
         File projectDir = getProjectLayout().getProjectDirectory().getAsFile();
         AntlrResult result = manager.runWorker(projectDir, getWorkerProcessBuilderFactory(), getAntlrClasspath(), spec);
         evaluate(result);
@@ -242,7 +243,7 @@ public class AntlrTask extends SourceTask {
 
     private void evaluate(AntlrResult result) {
         int errorCount = result.getErrorCount();
-        if(errorCount < 0) {
+        if (errorCount < 0) {
             throw new AntlrSourceGenerationException("There were errors during grammar generation", result.getException());
         } else if (errorCount == 1) {
             throw new AntlrSourceGenerationException("There was 1 error during grammar generation", result.getException());
@@ -283,7 +284,7 @@ public class AntlrTask extends SourceTask {
     public void setSource(Object source) {
         super.setSource(source);
         if (source instanceof SourceDirectorySet) {
-            this.sourceDirectorySet = (SourceDirectorySet) source;
+            this.sourceSetDirectories = ((SourceDirectorySet) source).getSourceDirectories();
         }
     }
 
@@ -303,6 +304,7 @@ public class AntlrTask extends SourceTask {
      */
     @Incubating
     @SkipWhenEmpty
+    @IgnoreEmptyDirectories
     @PathSensitive(PathSensitivity.RELATIVE)
     @InputFiles
     protected FileCollection getStableSources() {

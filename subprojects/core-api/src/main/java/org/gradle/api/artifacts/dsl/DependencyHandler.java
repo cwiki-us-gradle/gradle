@@ -19,14 +19,16 @@ import groovy.lang.Closure;
 import org.gradle.api.Action;
 import org.gradle.api.Incubating;
 import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.artifacts.ExternalModuleDependency;
+import org.gradle.api.artifacts.MinimalExternalModuleDependency;
 import org.gradle.api.artifacts.query.ArtifactResolutionQuery;
 import org.gradle.api.artifacts.transform.TransformAction;
 import org.gradle.api.artifacts.transform.TransformParameters;
 import org.gradle.api.artifacts.transform.TransformSpec;
-import org.gradle.api.artifacts.transform.VariantTransform;
 import org.gradle.api.artifacts.type.ArtifactTypeContainer;
 import org.gradle.api.attributes.AttributesSchema;
 import org.gradle.api.plugins.ExtensionAware;
+import org.gradle.api.provider.Provider;
 
 import javax.annotation.Nullable;
 import java.util.Map;
@@ -45,8 +47,9 @@ import java.util.Map;
  *
  * <p>Example shows a basic way of declaring dependencies.
  * <pre class='autoTested'>
- * apply plugin: 'java'
- * //so that we can use 'implementation', 'testImplementation' for dependencies
+ * plugins {
+ *     id 'java' // so that we can use 'implementation', 'testImplementation' for dependencies
+ * }
  *
  * dependencies {
  *   //for dependencies found in artifact repositories you can use
@@ -87,7 +90,9 @@ import java.util.Map;
  * </ul>
  *
  * <pre class='autoTestedWithDeprecations'>
- * apply plugin: 'java' //so that I can declare 'implementation' dependencies
+ * plugins {
+ *     id 'java' // so that I can declare 'implementation' dependencies
+ * }
  *
  * dependencies {
  *   implementation('org.hibernate:hibernate:3.1') {
@@ -112,7 +117,9 @@ import java.util.Map;
  * </ul>
  *
  * <pre class='autoTested'>
- * apply plugin: 'java' //so that I can declare 'implementation' dependencies
+ * plugins {
+ *     id 'java' // so that I can declare 'implementation' dependencies
+ * }
  *
  * dependencies {
  *   //configuring dependency to specific configuration of the module
@@ -143,6 +150,8 @@ import java.util.Map;
  *
  * <code><i>configurationName</i> &lt;instance&gt;</code>
  *
+ * <p>Dependencies can also be declared with a {@link org.gradle.api.provider.Provider} that provides any of the other supported dependency notations.</p>
+ *
  * <h3>External dependencies</h3>
  *
  * <p>There are two notations supported for declaring a dependency on an external module.
@@ -161,8 +170,9 @@ import java.util.Map;
  * org.gradle.api.artifacts.ExternalModuleDependency}.</p>
  *
  * <pre class='autoTested'>
- * apply plugin: 'java'
- * //so that we can use 'implementation', 'testImplementation' for dependencies
+ * plugins {
+ *     id 'java' // so that we can use 'implementation', 'testImplementation' for dependencies
+ * }
  *
  * dependencies {
  *   //for dependencies found in artifact repositories you can use
@@ -178,14 +188,14 @@ import java.util.Map;
  * <h3>Project dependencies</h3>
  *
  * <p>To add a project dependency, you use the following notation:
- * <p><code><i>configurationName</i> project(':someProject')</code>
+ * <p><code><i>configurationName</i> project(':some-project')</code>
  *
- * <p>The notation <code>project(':projectA')</code> is similar to the syntax you use
+ * <p>The notation <code>project(':project-a')</code> is similar to the syntax you use
  * when configuring a projectA in a multi-module gradle project.
  *
  * <p>By default, when you declare dependency to projectA, you actually declare dependency to the 'default' configuration of the projectA.
  * If you need to depend on a specific configuration of projectA, use map notation for projects:
- * <p><code><i>configurationName</i> project(path: ':projectA', configuration: 'someOtherConfiguration')</code>
+ * <p><code><i>configurationName</i> project(path: ':project-a', configuration: 'someOtherConfiguration')</code>
  *
  * <p>Project dependencies are represented using a {@link org.gradle.api.artifacts.ProjectDependency}.
  *
@@ -195,8 +205,9 @@ import java.util.Map;
  * <code><i>configurationName</i> files('a file')</code>
  *
  * <pre class='autoTested'>
- * apply plugin: 'java'
- * //so that we can use 'implementation', 'testImplementation' for dependencies
+ * plugins {
+ *     id 'java' // so that we can use 'implementation', 'testImplementation' for dependencies
+ * }
  *
  * dependencies {
  *   //declaring arbitrary files as dependencies
@@ -225,8 +236,10 @@ import java.util.Map;
  *
  * <pre class='autoTested'>
  * //Our Gradle plugin is written in groovy
- * apply plugin: 'groovy'
- * //now we can use the 'implementation' configuration for declaring dependencies
+ * plugins {
+ *     id 'groovy'
+ * }
+ * // now we can use the 'implementation' configuration for declaring dependencies
  *
  * dependencies {
  *   //we will use the Groovy version that ships with Gradle:
@@ -252,6 +265,7 @@ import java.util.Map;
  *
  * The module notation is the same as the dependency notations described above, except that the classifier property is
  * not available. Client modules are represented using a {@link org.gradle.api.artifacts.ClientModule}.
+ *
  */
 public interface DependencyHandler extends ExtensionAware {
     /**
@@ -275,6 +289,29 @@ public interface DependencyHandler extends ExtensionAware {
      * @return The dependency.
      */
     Dependency add(String configurationName, Object dependencyNotation, Closure configureClosure);
+
+    /**
+     * Adds a dependency provider to the given configuration, eventually configures the dependency using the given action.
+     *
+     * @param configurationName The name of the configuration.
+     * @param dependencyNotation The dependency provider notation, in one of the notations described above.
+     * @param configuration The action to use to configure the dependency.
+     *
+     * @since 6.8
+     */
+    @Incubating
+    <T, U extends ExternalModuleDependency> void addProvider(String configurationName, Provider<T> dependencyNotation, Action<? super U> configuration);
+
+    /**
+     * Adds a dependency provider to the given configuration.
+     *
+     * @param configurationName The name of the configuration.
+     * @param dependencyNotation The dependency provider notation, in one of the notations described above.
+     *
+     * @since 7.0
+     */
+    @Incubating
+    <T> void addProvider(String configurationName, Provider<T> dependencyNotation);
 
     /**
      * Creates a dependency without adding it to a configuration.
@@ -442,7 +479,8 @@ public interface DependencyHandler extends ExtensionAware {
      * @since 3.5
      */
     @Deprecated
-    void registerTransform(Action<? super VariantTransform> registrationAction);
+    @SuppressWarnings("deprecation")
+    void registerTransform(Action<? super org.gradle.api.artifacts.transform.VariantTransform> registrationAction);
 
     /**
      * Registers an <a href="https://docs.gradle.org/current/userguide/artifact_transforms.html">artifact transform</a>.
@@ -555,4 +593,39 @@ public interface DependencyHandler extends ExtensionAware {
      */
     @Incubating
     Dependency testFixtures(Object notation, Action<? super Dependency> configureAction);
+
+    /**
+     * Allows fine tuning what variant to select for the target dependency. This can be used to
+     * specify a classifier, for example.
+     *
+     * @param dependencyProvider the dependency provider
+     * @param variantSpec the variant specification
+     * @return a new dependency provider targetting the configured variant
+     * @since 6.8
+     */
+    @Incubating
+    Provider<MinimalExternalModuleDependency> variantOf(Provider<MinimalExternalModuleDependency> dependencyProvider, Action<? super ExternalModuleDependencyVariantSpec> variantSpec);
+
+    /**
+     * Configures this dependency provider to select the platform variant of the target component
+     * @param dependencyProvider the dependency provider
+     * @return a new dependency provider targetting the platform variant of the component
+     * @since 6.8
+     */
+    @Incubating
+    default Provider<MinimalExternalModuleDependency> platform(Provider<MinimalExternalModuleDependency> dependencyProvider) {
+        return variantOf(dependencyProvider, ExternalModuleDependencyVariantSpec::platform);
+    }
+
+    /**
+     * Configures this dependency provider to select the test fixtures of the target component
+     * @param dependencyProvider the dependency provider
+     * @return a new dependency provider targetting the test fixtures of the component
+     * @since 6.8
+     */
+    @Incubating
+    default Provider<MinimalExternalModuleDependency> testFixtures(Provider<MinimalExternalModuleDependency> dependencyProvider) {
+        return variantOf(dependencyProvider, ExternalModuleDependencyVariantSpec::testFixtures);
+    }
+
 }

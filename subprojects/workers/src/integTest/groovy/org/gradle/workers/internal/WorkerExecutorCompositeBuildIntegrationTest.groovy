@@ -17,7 +17,6 @@
 package org.gradle.workers.internal
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.workers.fixtures.WorkerExecutorFixture
 import spock.lang.Issue
 import spock.lang.Unroll
@@ -29,12 +28,13 @@ class WorkerExecutorCompositeBuildIntegrationTest extends AbstractIntegrationSpe
 
     @Unroll
     @Issue("https://github.com/gradle/gradle/issues/10317")
-    @ToBeFixedForInstantExecution
     def "can use worker api with composite builds using #pluginId"() {
         settingsFile << """
+            pluginManagement {
+                includeBuild "plugin"
+            }
             rootProject.name = "app"
 
-            includeBuild "plugin"
             includeBuild "lib"
         """
 
@@ -42,6 +42,11 @@ class WorkerExecutorCompositeBuildIntegrationTest extends AbstractIntegrationSpe
         withLegacyWorkerPluginInPluginBuild()
         withTypedWorkerPluginInPluginBuild()
 
+        lib.file('settings.gradle') << """
+            pluginManagement {
+                includeBuild "../plugin"
+            }
+        """
         lib.file("build.gradle") << """
             buildscript {
                 dependencies {

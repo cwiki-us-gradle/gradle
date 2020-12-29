@@ -18,25 +18,34 @@ package org.gradle.kotlin.dsl.provider
 
 import org.gradle.api.internal.ClassPathRegistry
 import org.gradle.api.internal.artifacts.dsl.dependencies.DependencyFactory
+import org.gradle.api.internal.cache.StringInterner
+import org.gradle.api.internal.changedetection.state.ResourceSnapshotterCacheService
 import org.gradle.api.internal.classpath.ModuleRegistry
-
+import org.gradle.api.internal.file.FileCollectionFactory
+import org.gradle.api.internal.file.TemporaryFileProvider
+import org.gradle.api.internal.initialization.loadercache.CompileClasspathHasher
+import org.gradle.api.internal.initialization.loadercache.DefaultClasspathHasher
 import org.gradle.cache.internal.GeneratedGradleJarCache
-
 import org.gradle.groovy.scripts.internal.ScriptSourceHasher
-
 import org.gradle.initialization.ClassLoaderScopeRegistry
-
 import org.gradle.internal.classloader.ClasspathHasher
-
+import org.gradle.internal.classpath.CachedClasspathTransformer
+import org.gradle.internal.event.ListenerManager
+import org.gradle.internal.execution.ExecutionEngine
+import org.gradle.internal.fingerprint.FileCollectionSnapshotter
+import org.gradle.internal.fingerprint.classpath.ClasspathFingerprinter
 import org.gradle.internal.logging.progress.ProgressLoggerFactory
 import org.gradle.internal.operations.BuildOperationExecutor
-
-import org.gradle.kotlin.dsl.cache.ScriptCache
+import org.gradle.internal.scripts.ScriptExecutionListener
+import org.gradle.kotlin.dsl.cache.KotlinDslWorkspaceProvider
+import org.gradle.kotlin.dsl.normalization.KotlinCompileClasspathFingerprinter
 import org.gradle.kotlin.dsl.support.EmbeddedKotlinProvider
 import org.gradle.kotlin.dsl.support.ImplicitImports
-
 import org.gradle.plugin.management.internal.autoapply.AutoAppliedPluginHandler
 import org.gradle.plugin.use.internal.PluginRequestApplicator
+
+
+const val BUILDSCRIPT_COMPILE_AVOIDANCE_ENABLED = true
 
 
 internal
@@ -49,6 +58,7 @@ object BuildServices {
         classLoaderScopeRegistry: ClassLoaderScopeRegistry,
         dependencyFactory: DependencyFactory,
         jarCache: GeneratedGradleJarCache,
+        temporaryFileProvider: TemporaryFileProvider,
         progressLoggerFactory: ProgressLoggerFactory
     ) =
 
@@ -58,7 +68,9 @@ object BuildServices {
             classLoaderScopeRegistry.coreAndPluginsScope,
             gradleApiJarsProviderFor(dependencyFactory),
             versionedJarCacheFor(jarCache),
-            StandardJarGenerationProgressMonitorProvider(progressLoggerFactory))
+            temporaryFileProvider,
+            StandardJarGenerationProgressMonitorProvider(progressLoggerFactory)
+        )
 
     @Suppress("unused")
     fun createPluginRequestsHandler(
@@ -82,11 +94,16 @@ object BuildServices {
         classPathModeExceptionCollector: ClassPathModeExceptionCollector,
         kotlinScriptBasePluginsApplicator: KotlinScriptBasePluginsApplicator,
         scriptSourceHasher: ScriptSourceHasher,
-        classPathHasher: ClasspathHasher,
-        scriptCache: ScriptCache,
+        classpathHasher: ClasspathHasher,
         implicitImports: ImplicitImports,
         progressLoggerFactory: ProgressLoggerFactory,
-        buildOperationExecutor: BuildOperationExecutor
+        buildOperationExecutor: BuildOperationExecutor,
+        cachedClasspathTransformer: CachedClasspathTransformer,
+        listenerManager: ListenerManager,
+        executionEngine: ExecutionEngine,
+        workspaceProvider: KotlinDslWorkspaceProvider,
+        @Suppress("UNUSED_PARAMETER") kotlinCompilerContextDisposer: KotlinCompilerContextDisposer,
+        fileCollectionFactory: FileCollectionFactory
     ): KotlinScriptEvaluator =
 
         StandardKotlinScriptEvaluator(
@@ -98,11 +115,40 @@ object BuildServices {
             classPathModeExceptionCollector,
             kotlinScriptBasePluginsApplicator,
             scriptSourceHasher,
-            classPathHasher,
-            scriptCache,
+            classpathHasher,
             implicitImports,
             progressLoggerFactory,
-            buildOperationExecutor)
+            buildOperationExecutor,
+            cachedClasspathTransformer,
+            listenerManager.getBroadcaster(ScriptExecutionListener::class.java),
+            executionEngine,
+            workspaceProvider,
+            fileCollectionFactory
+        )
+
+    @Suppress("unused")
+    fun createCompileClasspathHasher(
+        cacheService: ResourceSnapshotterCacheService,
+        fileCollectionSnapshotter: FileCollectionSnapshotter,
+        stringInterner: StringInterner,
+        fileCollectionFactory: FileCollectionFactory,
+        classpathFingerprinter: ClasspathFingerprinter
+    ) =
+        if (BUILDSCRIPT_COMPILE_AVOIDANCE_ENABLED)
+            CompileClasspathHasher(
+                KotlinCompileClasspathFingerprinter(
+                    cacheService,
+                    fileCollectionSnapshotter,
+                    stringInterner
+                ),
+                fileCollectionFactory
+            )
+        else
+            DefaultClasspathHasher(classpathFingerprinter, fileCollectionFactory)
+
+    @Suppress("unused")
+    fun createKotlinCompilerContextDisposer(listenerManager: ListenerManager) =
+        KotlinCompilerContextDisposer(listenerManager)
 
     private
     fun versionedJarCacheFor(jarCache: GeneratedGradleJarCache): JarCache =

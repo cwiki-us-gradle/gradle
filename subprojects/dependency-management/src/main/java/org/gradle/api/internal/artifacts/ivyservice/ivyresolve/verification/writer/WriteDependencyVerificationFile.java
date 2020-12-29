@@ -154,7 +154,7 @@ public class WriteDependencyVerificationFile implements DependencyVerificationOv
 
     private void warnAboutInsecureChecksums() {
         if (checksums.stream().noneMatch(SECURE_CHECKSUMS::contains)) {
-            LOGGER.warn("You chose to generate " + checksums.stream().collect(Collectors.joining(" and ")) + " checksums but they are all considered insecure. You should consider adding at least one of " + SECURE_CHECKSUMS.stream().collect(Collectors.joining(" or ")) + ".");
+            LOGGER.warn("You chose to generate " + String.join(" and ", checksums) + " checksums but they are all considered insecure. You should consider adding at least one of " + String.join(" or ", SECURE_CHECKSUMS) + ".");
         }
     }
 
@@ -323,7 +323,7 @@ public class WriteDependencyVerificationFile implements DependencyVerificationOv
     }
 
     private void resolveAllConfigurationsConcurrently(Gradle gradle) {
-        buildOperationExecutor.runAll(queue -> {
+        buildOperationExecutor.runAllWithAccessToProjectState(queue -> {
             Set<Project> allprojects = gradle.getRootProject().getAllprojects();
             for (Project project : allprojects) {
                 queue.add(new RunnableBuildOperation() {
@@ -427,10 +427,7 @@ public class WriteDependencyVerificationFile implements DependencyVerificationOv
     }
 
     private boolean shouldSkipVerification(ArtifactVerificationOperation.ArtifactKind kind) {
-        if (kind == ArtifactVerificationOperation.ArtifactKind.METADATA && !verificationsBuilder.isVerifyMetadata()) {
-            return true;
-        }
-        return false;
+        return kind == ArtifactKind.METADATA && !verificationsBuilder.isVerifyMetadata();
     }
 
     private void addChecksum(ModuleComponentArtifactIdentifier id, ArtifactKind artifactKind, File file, ChecksumKind kind) {
@@ -441,10 +438,7 @@ public class WriteDependencyVerificationFile implements DependencyVerificationOv
     }
 
     private boolean isTrustedArtifact(ModuleComponentArtifactIdentifier id) {
-        if (verificationsBuilder.getTrustedArtifacts().stream().anyMatch(artifact -> artifact.matches(id))) {
-            return true;
-        }
-        return false;
+        return verificationsBuilder.getTrustedArtifacts().stream().anyMatch(artifact -> artifact.matches(id));
     }
 
     private String createHash(File file, ChecksumKind kind) {
@@ -456,8 +450,8 @@ public class WriteDependencyVerificationFile implements DependencyVerificationOv
         }
     }
 
-    private static void resolveAllConfigurationsAndForceDownload(Project p) {
-        ((ProjectInternal) p).getMutationState().withMutableState(() ->
+    private static void resolveAllConfigurationsAndForceDownload(Project project) {
+        ((ProjectInternal) project).getMutationState().applyToMutableState(p ->
             p.getConfigurations().all(cnf -> {
                 if (((DeprecatableConfiguration) cnf).canSafelyBeResolved()) {
                     try {

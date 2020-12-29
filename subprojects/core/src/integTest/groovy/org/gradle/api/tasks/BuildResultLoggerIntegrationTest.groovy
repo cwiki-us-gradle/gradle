@@ -18,7 +18,6 @@ package org.gradle.api.tasks
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.DirectoryBuildCacheFixture
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 
 class BuildResultLoggerIntegrationTest extends AbstractIntegrationSpec implements DirectoryBuildCacheFixture {
     def setup() {
@@ -60,7 +59,6 @@ class BuildResultLoggerIntegrationTest extends AbstractIntegrationSpec implement
         output.contains "2 actionable tasks: 1 executed, 1 up-to-date"
     }
 
-    @ToBeFixedForInstantExecution
     def "cached task outcome statistics are reported"() {
         when:
         withBuildCache().run "adHocTask", "executedTask"
@@ -94,5 +92,30 @@ class BuildResultLoggerIntegrationTest extends AbstractIntegrationSpec implement
         then:
         // No stats are reported because no tasks had any actions
         !output.contains("actionable tasks")
+    }
+
+    def "work validation warnings are mentioned in summary"() {
+        buildFile << """
+            class InvalidTask extends DefaultTask {
+                @Optional @Input File inputFile
+
+                @TaskAction void execute() {
+                    // Do nothing
+                }
+            }
+
+            tasks.register("invalid", InvalidTask)
+        """
+
+        executer.expectDocumentedDeprecationWarning("Property 'inputFile' has @Input annotation used on property of type 'File'. " +
+            "This behaviour has been deprecated and is scheduled to be removed in Gradle 7.0. " +
+            "Execution optimizations are disabled due to the failed validation. " +
+            "See https://docs.gradle.org/current/userguide/more_about_tasks.html#sec:up_to_date_checks for more details.")
+
+        when:
+        run "invalid"
+
+        then:
+        outputContains "Execution optimizations have been disabled for 1 invalid unit(s) of work during the build. Consult deprecation warnings for more information."
     }
 }

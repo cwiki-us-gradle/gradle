@@ -19,7 +19,7 @@ package org.gradle.scala.scaladoc
 import org.gradle.api.plugins.scala.ScalaPlugin
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.DirectoryBuildCacheFixture
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.scala.ScalaCompilationFixture
 
 class ScalaDocIntegrationTest extends AbstractIntegrationSpec implements DirectoryBuildCacheFixture {
@@ -27,7 +27,8 @@ class ScalaDocIntegrationTest extends AbstractIntegrationSpec implements Directo
     String scaladoc = ":${ScalaPlugin.SCALA_DOC_TASK_NAME}"
     ScalaCompilationFixture classes = new ScalaCompilationFixture(testDirectory)
 
-    @ToBeFixedForInstantExecution
+
+    @ToBeFixedForConfigurationCache
     def "changing the Scala version makes Scaladoc out of date"() {
         classes.baseline()
         buildScript(classes.buildScript())
@@ -52,7 +53,7 @@ class ScalaDocIntegrationTest extends AbstractIntegrationSpec implements Directo
         executedAndNotSkipped scaladoc
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def "scaladoc is loaded from cache"() {
         classes.baseline()
         buildScript(classes.buildScript())
@@ -71,4 +72,18 @@ class ScalaDocIntegrationTest extends AbstractIntegrationSpec implements Directo
         skipped scaladoc
     }
 
+    def "scaladoc uses maxMemory"() {
+        classes.baseline()
+        buildScript(classes.buildScript())
+        buildFile << """
+            scaladoc.maxMemory = '234M'
+        """
+        when:
+        succeeds scaladoc, "-i"
+
+        then:
+        // Looks like
+        // Started Gradle worker daemon (0.399 secs) with fork options DaemonForkOptions{executable=/Library/Java/JavaVirtualMachines/adoptopenjdk-11.jdk/Contents/Home/bin/java, minHeapSize=null, maxHeapSize=234M, jvmArgs=[], keepAliveMode=DAEMON}.
+        outputContains("maxHeapSize=234M")
+    }
 }

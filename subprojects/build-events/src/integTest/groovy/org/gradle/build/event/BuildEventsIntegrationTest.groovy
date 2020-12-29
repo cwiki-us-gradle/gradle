@@ -17,10 +17,11 @@
 package org.gradle.build.event
 
 import org.gradle.api.services.BuildServiceParameters
+import org.gradle.initialization.StartParameterBuildOptions.ConfigurationCacheOption
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.InstantExecutionRunner
+import org.gradle.integtests.fixtures.ConfigurationCacheRunner
 import org.gradle.integtests.fixtures.RequiredFeature
-import org.gradle.integtests.fixtures.UnsupportedWithInstantExecution
+import org.gradle.integtests.fixtures.UnsupportedWithConfigurationCache
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.tooling.events.FinishEvent
 import org.gradle.tooling.events.OperationCompletionListener
@@ -30,7 +31,7 @@ import org.gradle.tooling.events.task.TaskSkippedResult
 import org.gradle.tooling.events.task.TaskSuccessResult
 import org.junit.runner.RunWith
 
-@RunWith(InstantExecutionRunner)
+@RunWith(ConfigurationCacheRunner)
 class BuildEventsIntegrationTest extends AbstractIntegrationSpec {
     def "listener can subscribe to task completion events"() {
         loggingListener()
@@ -130,8 +131,8 @@ class BuildEventsIntegrationTest extends AbstractIntegrationSpec {
         outputContains("EVENT: finish :b:thing")
     }
 
-    @RequiredFeature(feature = "org.gradle.unsafe.instant-execution", value = "false")
-    @UnsupportedWithInstantExecution
+    @RequiredFeature(feature = ConfigurationCacheOption.PROPERTY_NAME, value = "false")
+    @UnsupportedWithConfigurationCache
     def "listener receives task completion events from included builds"() {
         settingsFile << """
             includeBuild 'a'
@@ -372,7 +373,6 @@ class BuildEventsIntegrationTest extends AbstractIntegrationSpec {
     def registeringPlugin() {
         buildFile << """
             import ${BuildEventsListenerRegistry.name}
-            import javax.inject.Inject
 
             abstract class LoggingPlugin implements Plugin<Project> {
                 @Inject

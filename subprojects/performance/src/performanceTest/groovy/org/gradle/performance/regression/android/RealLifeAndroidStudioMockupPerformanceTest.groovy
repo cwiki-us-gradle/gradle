@@ -16,36 +16,40 @@
 
 package org.gradle.performance.regression.android
 
-import org.gradle.performance.AbstractAndroidStudioMockupCrossVersionPerformanceTest
-import spock.lang.Unroll
+import org.gradle.performance.AbstractCrossVersionPerformanceTest
+import org.gradle.performance.android.GetModel
+import org.gradle.performance.android.SyncAction
+import org.gradle.performance.annotations.RunFor
+import org.gradle.performance.annotations.Scenario
+import org.gradle.performance.fixture.AndroidTestProject
 
-class RealLifeAndroidStudioMockupPerformanceTest extends AbstractAndroidStudioMockupCrossVersionPerformanceTest {
+import static org.gradle.performance.annotations.ScenarioType.PER_COMMIT
+import static org.gradle.performance.results.OperatingSystem.LINUX
 
-    @Unroll
-    def "get IDE model on #testProject for Android Studio"() {
+@RunFor(
+    @Scenario(type = PER_COMMIT, operatingSystems = [LINUX], testProjects = ["largeAndroidBuild", "santaTrackerAndroidBuild"])
+)
+class RealLifeAndroidStudioMockupPerformanceTest extends AbstractCrossVersionPerformanceTest {
+
+    def "get IDE model for Android Studio"() {
         given:
+        def testProject = AndroidTestProject.projectFor(runner.testProject)
+        testProject.configure(runner)
+        runner.warmUpRuns = 40
+        runner.runs = 40
+        runner.minimumBaseVersion = "6.5"
+        runner.targetVersions = ["6.8-20201108230029+0000"]
 
-        experiment(testProject) {
-            // AGP 3.5 requires 5.4.1+
-            minimumBaseVersion = "5.4.1"
-            targetVersions = ["6.2-20200108160029+0000"]
-            action('org.gradle.performance.android.SyncAction') {
-                jvmArguments = ["-Xms5g", "-Xmx5g"]
-            }
-            invocationCount = iterations
-            warmUpCount = iterations
+        runner.toolingApi("Android Studio Sync") {
+            it.action(new GetModel())
+        }.run { modelBuilder ->
+            SyncAction.withModelBuilder(modelBuilder)
         }
 
         when:
-        def results = performMeasurements()
+        def result = runner.run()
 
         then:
-        results.assertCurrentVersionHasNotRegressed()
-
-        where:
-        testProject         | iterations
-        "k9AndroidBuild"    | 200
-        "largeAndroidBuild" | 40
+        result.assertCurrentVersionHasNotRegressed()
     }
-
 }

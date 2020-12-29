@@ -16,25 +16,27 @@
 package org.gradle.scala.compile
 
 import org.gradle.integtests.fixtures.AvailableJavaHomes
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.MultiVersionIntegrationSpec
 import org.gradle.integtests.fixtures.ScalaCoverage
 import org.gradle.integtests.fixtures.TargetCoverage
 import org.gradle.integtests.fixtures.TestResources
+import org.gradle.integtests.fixtures.ToBeFixedForConfigurationCache
 import org.gradle.internal.hash.Hashing
 import org.gradle.test.fixtures.file.ClassFile
 import org.gradle.util.VersionNumber
 import org.junit.Assume
 import org.junit.Rule
+import spock.lang.Issue
 
 import static org.gradle.integtests.fixtures.RepoScriptBlockUtil.mavenCentralRepositoryDefinition
 import static org.gradle.util.TextUtil.escapeString
 import static org.gradle.util.TextUtil.normaliseFileSeparators
 import static org.hamcrest.core.IsNull.notNullValue
 
-@TargetCoverage({ScalaCoverage.DEFAULT})
+@TargetCoverage({ ScalaCoverage.DEFAULT })
 class ZincScalaCompilerIntegrationTest extends MultiVersionIntegrationSpec {
-    @Rule TestResources testResources = new TestResources(temporaryFolder)
+    @Rule
+    TestResources testResources = new TestResources(temporaryFolder)
 
     def setup() {
         args("-PscalaVersion=$version")
@@ -136,7 +138,7 @@ class ZincScalaCompilerIntegrationTest extends MultiVersionIntegrationSpec {
 
         and:
         buildFile <<
-"""
+            """
 compileScala.scalaCompileOptions.failOnError = false
 """
 
@@ -168,7 +170,7 @@ compileScala.scalaCompileOptions.failOnError = false
                 sourceCompatibility = JavaVersion.${differentJvm.javaVersion.name()}
                 targetCompatibility = JavaVersion.${differentJvm.javaVersion.name()}
             }
-            
+
             tasks.withType(ScalaCompile) {
                 options.forkOptions.executable = "${differentJavaExecutablePath}"
                 options.forkOptions.memoryInitialSize = "128m"
@@ -197,16 +199,15 @@ compileScala.scalaCompileOptions.failOnError = false
 
     }
 
-    @ToBeFixedForInstantExecution
     def compileWithSpecifiedEncoding() {
         given:
         goodCodeEncodedWith("ISO8859_7")
 
         and:
         buildFile <<
-"""
+            """
 apply plugin: "application"
-mainClassName = "Main"
+application.mainClass = "Main"
 compileScala.scalaCompileOptions.encoding = "ISO8859_7"
 """
 
@@ -215,7 +216,6 @@ compileScala.scalaCompileOptions.encoding = "ISO8859_7"
         file("encoded.out").getText("utf-8") == "\u03b1\u03b2\u03b3"
     }
 
-    @ToBeFixedForInstantExecution
     def compilesWithSpecifiedDebugSettings() {
         given:
         goodCode()
@@ -231,7 +231,7 @@ compileScala.scalaCompileOptions.encoding = "ISO8859_7"
 
         when:
         buildFile <<
-"""
+            """
 compileScala.scalaCompileOptions.debugLevel = "line"
 """
         run("compileScala")
@@ -243,11 +243,13 @@ compileScala.scalaCompileOptions.debugLevel = "line"
         !linesOnly.debugIncludesLocalVariables
 
         // older versions of scalac Ant task don't handle 'none' correctly
-        if (versionNumber < VersionNumber.parse("2.10.0-AAA")) { return }
+        if (versionNumber < VersionNumber.parse("2.10.0-AAA")) {
+            return
+        }
 
         when:
         buildFile <<
-"""
+            """
 compileScala.scalaCompileOptions.debugLevel = "none"
 """
         run("compileScala")
@@ -260,7 +262,7 @@ compileScala.scalaCompileOptions.debugLevel = "none"
     }
 
     def buildScript() {
-"""
+        """
 apply plugin: "scala"
 
 repositories {
@@ -275,7 +277,7 @@ dependencies {
 
     def goodCode() {
         file("src/main/scala/compile/test/Person.scala") <<
-"""
+            """
 package compile.test
 
 class Person(val name: String, val age: Int) {
@@ -283,7 +285,7 @@ class Person(val name: String, val age: Int) {
 }
 """
         file("src/main/scala/compile/test/Person2.scala") <<
-"""
+            """
 package compile.test
 
 class Person2(name: String, age: Int) extends Person(name, age) {
@@ -293,7 +295,7 @@ class Person2(name: String, age: Int) extends Person(name, age) {
 
     def goodCodeEncodedWith(String encoding) {
         def code =
-"""
+            """
 import java.io.{FileOutputStream, File, OutputStreamWriter}
 
 object Main {
@@ -319,7 +321,7 @@ object Main {
 
     def badCode() {
         file("src/main/scala/compile/test/Person.scala") <<
-"""
+            """
 package compile.test
 
 class Person(val name: String, val age: Int) {
@@ -339,7 +341,7 @@ class Person(val name: String, val age: Int) {
         return new ClassFile(scalaClassFile(path))
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def compilesScalaCodeIncrementally() {
         setup:
         def person = scalaClassFile("Person.class")
@@ -359,7 +361,7 @@ class Person(val name: String, val age: Int) {
         other.lastModified() == old(other.lastModified())
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def compilesJavaCodeIncrementally() {
         setup:
         def person = scalaClassFile("Person.class")
@@ -379,7 +381,7 @@ class Person(val name: String, val age: Int) {
         other.lastModified() == old(other.lastModified())
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def compilesIncrementallyAcrossProjectBoundaries() {
         setup:
         def person = file("prj1/build/classes/scala/main/Person.class")
@@ -401,7 +403,7 @@ class Person(val name: String, val age: Int) {
 
     }
 
-    @ToBeFixedForInstantExecution
+    @ToBeFixedForConfigurationCache
     def compilesAllScalaCodeWhenForced() {
         setup:
         def person = scalaClassFile("Person.class")
@@ -421,11 +423,40 @@ class Person(val name: String, val age: Int) {
         other.lastModified() != old(other.lastModified())
     }
 
+    @Issue("gradle/gradle#13535")
+    def doNotPropagateWorkerClasspathToCompilationClasspath() {
+        given:
+        // scala 2.12 is used because for 2.13 this particular case is ok
+        file("build.gradle") << """
+            apply plugin: 'scala'
+
+            ${mavenCentralRepository()}
+
+            dependencies {
+                implementation 'org.scala-lang:scala-library:2.12.11'
+            }
+        """
+
+        file("src/main/scala/ScalaXml.scala") << """
+            import scala.xml.Text
+
+            object ScalaXml {
+              def main(args: Array[String]): Unit = {
+                val text = new Text("test")
+                println(text)
+              }
+            }"""
+
+        expect:
+        fails("compileScala")
+        result.assertHasErrorOutput("object xml is not a member of package scala")
+    }
+
     def classHash(File file) {
         def dir = file.parentFile
         def name = file.name - '.class'
         def hasher = Hashing.md5().newHasher()
-        dir.listFiles().findAll { it.name.startsWith(name) && it.name.endsWith('.class')}.sort().each {
+        dir.listFiles().findAll { it.name.startsWith(name) && it.name.endsWith('.class') }.sort().each {
             hasher.putBytes(it.bytes)
         }
         hasher.hash()

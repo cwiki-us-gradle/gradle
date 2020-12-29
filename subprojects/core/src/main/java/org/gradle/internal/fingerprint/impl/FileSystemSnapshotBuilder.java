@@ -18,17 +18,22 @@ package org.gradle.internal.fingerprint.impl;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Interner;
-import org.gradle.internal.file.FileMetadataSnapshot;
+import org.gradle.internal.file.FileMetadata;
+import org.gradle.internal.file.FileMetadata.AccessType;
 import org.gradle.internal.hash.FileHasher;
 import org.gradle.internal.hash.HashCode;
-import org.gradle.internal.snapshot.FileMetadata;
 import org.gradle.internal.snapshot.FileSystemSnapshot;
 import org.gradle.internal.snapshot.MerkleDirectorySnapshotBuilder;
 import org.gradle.internal.snapshot.RegularFileSnapshot;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+
+import static org.gradle.internal.snapshot.MerkleDirectorySnapshotBuilder.EmptyDirectoryHandlingStrategy.INCLUDE_EMPTY_DIRS;
 
 public class FileSystemSnapshotBuilder {
 
@@ -50,10 +55,10 @@ public class FileSystemSnapshotBuilder {
         rootBuilder.addDir(segments, 0);
     }
 
-    public void addFile(File file, String[] segments, String fileName, FileMetadataSnapshot metadataSnapshot) {
+    public void addFile(File file, String[] segments, String fileName, FileMetadata metadata) {
         checkNoRootFileSnapshot("another root file", file);
-        HashCode contentHash = fileHasher.hash(file, metadataSnapshot.getLength(), metadataSnapshot.getLastModified());
-        RegularFileSnapshot fileSnapshot = new RegularFileSnapshot(stringInterner.intern(file.getAbsolutePath()), fileName, contentHash, FileMetadata.from(metadataSnapshot));
+        HashCode contentHash = fileHasher.hash(file, metadata.getLength(), metadata.getLastModified());
+        RegularFileSnapshot fileSnapshot = new RegularFileSnapshot(stringInterner.intern(file.getAbsolutePath()), fileName, contentHash, metadata);
         if (segments.length == 0) {
             rootFileSnapshot = fileSnapshot;
         } else {
@@ -71,12 +76,12 @@ public class FileSystemSnapshotBuilder {
     private DirectoryBuilder getOrCreateRootDir(File dir, String[] segments) {
         if (rootDirectoryBuilder == null) {
             rootDirectoryBuilder = new DirectoryBuilder();
-            File rootDir = dir;
+            Path rootDir = dir.toPath();
             for (String ignored : segments) {
-                rootDir = rootDir.getParentFile();
+                rootDir = rootDir.getParent();
             }
-            rootPath = stringInterner.intern(rootDir.getAbsolutePath());
-            rootName = stringInterner.intern(rootDir.getName());
+            rootPath = stringInterner.intern(rootDir.toAbsolutePath().toString());
+            rootName = stringInterner.intern(rootDir.getFileName().toString());
         }
         return rootDirectoryBuilder;
     }
@@ -89,9 +94,7 @@ public class FileSystemSnapshotBuilder {
             return FileSystemSnapshot.EMPTY;
         }
         MerkleDirectorySnapshotBuilder builder = MerkleDirectorySnapshotBuilder.sortingRequired();
-        builder.preVisitDirectory(rootPath, rootName);
-        rootDirectoryBuilder.accept(rootPath, builder);
-        builder.postVisitDirectory();
+        rootDirectoryBuilder.accept(rootPath, rootName, builder);
         return Preconditions.checkNotNull(builder.getResult());
     }
 
@@ -138,17 +141,21 @@ public class FileSystemSnapshotBuilder {
             return subDir;
         }
 
-        public void accept(String directoryPath, MerkleDirectorySnapshotBuilder builder) {
+        public void accept(String directoryPath, String directoryName, MerkleDirectorySnapshotBuilder builder) {
+            builder.enterDirectory(determineAccessTypeForLocation(directoryPath), directoryPath, directoryName, INCLUDE_EMPTY_DIRS);
             for (Map.Entry<String, DirectoryBuilder> entry : subDirs.entrySet()) {
-                String dirName = entry.getKey();
-                String dirPath = stringInterner.intern(directoryPath + File.separatorChar + dirName);
-                builder.preVisitDirectory(dirPath, dirName);
-                entry.getValue().accept(dirPath, builder);
-                builder.postVisitDirectory();
+                String subDirName = entry.getKey();
+                String subDirPath = stringInterner.intern(directoryPath + File.separatorChar + subDirName);
+                entry.getValue().accept(subDirPath, subDirName, builder);
             }
             for (RegularFileSnapshot fileSnapshot : files.values()) {
-                builder.visitFile(fileSnapshot);
+                builder.visitLeafElement(fileSnapshot);
             }
+            builder.leaveDirectory();
         }
+    }
+
+    private static AccessType determineAccessTypeForLocation(String absolutePath) {
+        return AccessType.viaSymlink(Files.isSymbolicLink(Paths.get(absolutePath)));
     }
 }

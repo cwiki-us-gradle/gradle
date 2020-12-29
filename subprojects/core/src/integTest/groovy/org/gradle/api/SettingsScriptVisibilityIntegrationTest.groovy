@@ -17,16 +17,19 @@
 package org.gradle.api
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
+import org.gradle.internal.os.OperatingSystem
 import org.gradle.test.fixtures.plugin.PluginBuilder
 import org.gradle.test.fixtures.server.http.MavenHttpPluginRepository
+import spock.lang.IgnoreIf
+import spock.lang.Issue
 
+@Issue("https://github.com/gradle/gradle-private/issues/3247")
+@IgnoreIf({OperatingSystem.current().macOsX && JavaVersion.current() == JavaVersion.VERSION_1_8})
 class SettingsScriptVisibilityIntegrationTest extends AbstractIntegrationSpec {
 
     @org.junit.Rule
     MavenHttpPluginRepository pluginRepo = MavenHttpPluginRepository.asGradlePluginPortal(executer, mavenRepo)
 
-    @ToBeFixedForInstantExecution
     def "classes loaded in settings are visible to buildSrc build scripts and project scripts"() {
         def plugin1Builder = new PluginBuilder(file("plugin1"))
         plugin1Builder.addSettingsPlugin("", "test.plugin1", "MySettingsPlugin1")
@@ -44,21 +47,21 @@ class SettingsScriptVisibilityIntegrationTest extends AbstractIntegrationSpec {
             buildscript { dependencies { classpath files(\"${plugin1Jar.name}\") } }
 
             getClass().classLoader.loadClass('${plugin1ClassName}')
-            println "settings: plugin 1 visible"    
+            println "settings: plugin 1 visible"
         """
 
         file("buildSrc/settings.gradle") << """
             buildscript { dependencies { classpath files(\"../${plugin2Jar.name}\") } }
 
             getClass().classLoader.loadClass('${plugin1ClassName}')
-            println "buildSrc settings: plugin 1 visible"    
+            println "buildSrc settings: plugin 1 visible"
             getClass().classLoader.loadClass('${plugin2ClassName}')
             println "buildSrc settings: plugin 2 visible"
         """
 
         file("buildSrc/build.gradle") << """
             getClass().classLoader.loadClass('${plugin1ClassName}')
-            println "buildSrc: plugin 1 visible"    
+            println "buildSrc: plugin 1 visible"
             getClass().classLoader.loadClass('${plugin2ClassName}')
             println "buildSrc: plugin 2 visible"
         """
@@ -70,11 +73,11 @@ class SettingsScriptVisibilityIntegrationTest extends AbstractIntegrationSpec {
                 getClass().classLoader.loadClass('${plugin2ClassName}')
             } catch (ClassNotFoundException e) {
                 println "project: plugin 2 not visible"
-            }    
+            }
         """
 
         when:
-        succeeds("tasks")
+        succeeds("help")
 
         then:
         outputContains("settings: plugin 1 visible")
@@ -86,7 +89,6 @@ class SettingsScriptVisibilityIntegrationTest extends AbstractIntegrationSpec {
         outputContains("project: plugin 2 not visible")
     }
 
-    @ToBeFixedForInstantExecution
     def "classes loaded in settings are visible when -b is used"() {
         def plugin1Builder = new PluginBuilder(file("plugin1"))
         plugin1Builder.addSettingsPlugin("", "test.plugin1", "MySettingsPlugin1")
@@ -98,7 +100,7 @@ class SettingsScriptVisibilityIntegrationTest extends AbstractIntegrationSpec {
             buildscript { dependencies { classpath files(\"${plugin1Jar.name}\") } }
 
             getClass().classLoader.loadClass('${plugin1ClassName}')
-            println "settings: plugin 1 visible"    
+            println "settings: plugin 1 visible"
         """
 
         file("other-build.gradle") << """
@@ -107,7 +109,7 @@ class SettingsScriptVisibilityIntegrationTest extends AbstractIntegrationSpec {
         """
 
         when:
-        succeeds("tasks", "-b", "other-build.gradle")
+        succeeds("help", "-b", "other-build.gradle")
 
         then:
         outputContains("settings: plugin 1 visible")

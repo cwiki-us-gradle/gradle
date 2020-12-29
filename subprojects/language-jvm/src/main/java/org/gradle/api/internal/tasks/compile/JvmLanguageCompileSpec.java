@@ -48,13 +48,15 @@ public interface JvmLanguageCompileSpec extends CompileSpec {
 
     void setRelease(@Nullable Integer release);
 
+    @Nullable
     String getSourceCompatibility();
 
-    void setSourceCompatibility(String sourceCompatibility);
+    void setSourceCompatibility(@Nullable String sourceCompatibility);
 
+    @Nullable
     String getTargetCompatibility();
 
-    void setTargetCompatibility(String targetCompatibility);
+    void setTargetCompatibility(@Nullable String targetCompatibility);
 
     List<File> getSourceRoots();
 

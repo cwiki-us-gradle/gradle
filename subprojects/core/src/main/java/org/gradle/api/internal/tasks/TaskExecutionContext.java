@@ -19,15 +19,22 @@ package org.gradle.api.internal.tasks;
 import org.gradle.api.internal.changedetection.TaskExecutionMode;
 import org.gradle.api.internal.tasks.properties.TaskProperties;
 import org.gradle.execution.plan.LocalTaskNode;
-import org.gradle.internal.operations.ExecutingBuildOperation;
+import org.gradle.internal.execution.WorkValidationContext;
+import org.gradle.internal.operations.BuildOperationContext;
+import org.gradle.internal.reflect.TypeValidationContext;
 
 import java.util.Optional;
+import java.util.function.Consumer;
 
 public interface TaskExecutionContext {
 
     LocalTaskNode getLocalTaskNode();
 
     TaskExecutionMode getTaskExecutionMode();
+
+    WorkValidationContext getValidationContext();
+
+    Consumer<TypeValidationContext> getValidationAction();
 
     void setTaskExecutionMode(TaskExecutionMode taskExecutionMode);
 
@@ -44,19 +51,17 @@ public interface TaskExecutionContext {
      */
     long markExecutionTime();
 
-    void setTaskProperties(TaskProperties properties);
-
     TaskProperties getTaskProperties();
 
     /**
-     * Gets and clears the build operation designed to measure the time taken
+     * Gets and clears the context of the build operation designed to measure the time taken
      * by capturing input snapshotting and cache key calculation.
      */
-    Optional<ExecutingBuildOperation> removeSnapshotTaskInputsBuildOperation();
+    Optional<BuildOperationContext> removeSnapshotTaskInputsBuildOperationContext();
 
     /**
-     * Sets the build operation designed to measure the time taken
+     * Sets the context for the build operation designed to measure the time taken
      * by capturing input snapshotting and cache key calculation.
      */
-    void setSnapshotTaskInputsBuildOperation(ExecutingBuildOperation  operation);
+    void setSnapshotTaskInputsBuildOperationContext(BuildOperationContext operation);
 }

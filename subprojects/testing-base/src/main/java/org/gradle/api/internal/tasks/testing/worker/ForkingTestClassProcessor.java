@@ -45,7 +45,7 @@ public class ForkingTestClassProcessor implements TestClassProcessor {
     private final WorkerTestClassProcessorFactory processorFactory;
     private final JavaForkOptions options;
     private final Iterable<File> classPath;
-    private final boolean inferModulePath;
+    private final Iterable<File> modulePath;
     private final List<String> testWorkerImplementationModules;
     private final Action<WorkerProcessBuilder> buildConfigAction;
     private final ModuleRegistry moduleRegistry;
@@ -54,18 +54,18 @@ public class ForkingTestClassProcessor implements TestClassProcessor {
     private WorkerProcess workerProcess;
     private TestResultProcessor resultProcessor;
     private WorkerLeaseRegistry.WorkerLeaseCompletion completion;
-    private DocumentationRegistry documentationRegistry;
+    private final DocumentationRegistry documentationRegistry;
     private boolean stoppedNow;
 
     public ForkingTestClassProcessor(WorkerLeaseRegistry.WorkerLease parentWorkerLease, WorkerProcessFactory workerFactory, WorkerTestClassProcessorFactory processorFactory, JavaForkOptions options,
-                                     Iterable<File> classPath, boolean inferModulePath, List<String> testWorkerImplementationModules,
+                                     Iterable<File> classPath, Iterable<File> modulePath, List<String> testWorkerImplementationModules,
                                      Action<WorkerProcessBuilder> buildConfigAction, ModuleRegistry moduleRegistry, DocumentationRegistry documentationRegistry) {
         this.currentWorkerLease = parentWorkerLease;
         this.workerFactory = workerFactory;
         this.processorFactory = processorFactory;
         this.options = options;
         this.classPath = classPath;
-        this.inferModulePath = inferModulePath;
+        this.modulePath = modulePath;
         this.testWorkerImplementationModules = testWorkerImplementationModules;
         this.buildConfigAction = buildConfigAction;
         this.moduleRegistry = moduleRegistry;
@@ -108,8 +108,9 @@ public class ForkingTestClassProcessor implements TestClassProcessor {
         builder.setImplementationClasspath(getTestWorkerImplementationClasspath());
         builder.setImplementationModulePath(getTestWorkerImplementationModulePath());
         builder.applicationClasspath(classPath);
-        builder.setInferApplicationModulePath(inferModulePath);
+        builder.applicationModulePath(modulePath);
         options.copyTo(builder.getJavaCommand());
+        builder.getJavaCommand().getModularity().getInferModulePath().set(modulePath.iterator().hasNext());
         builder.getJavaCommand().jvmArgs("-Dorg.gradle.native=false");
         buildConfigAction.execute(builder);
 
@@ -133,6 +134,7 @@ public class ForkingTestClassProcessor implements TestClassProcessor {
             moduleRegistry.getModule("gradle-logging").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getModule("gradle-messaging").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getModule("gradle-files").getImplementationClasspath().getAsURLs(),
+            moduleRegistry.getModule("gradle-file-temp").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getModule("gradle-hashing").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getModule("gradle-base-services").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getModule("gradle-cli").getImplementationClasspath().getAsURLs(),
@@ -141,12 +143,14 @@ public class ForkingTestClassProcessor implements TestClassProcessor {
             moduleRegistry.getModule("gradle-testing-jvm").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getModule("gradle-testing-junit-platform").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getModule("gradle-process-services").getImplementationClasspath().getAsURLs(),
+            moduleRegistry.getModule("gradle-build-operations").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getExternalModule("slf4j-api").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getExternalModule("jul-to-slf4j").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getExternalModule("native-platform").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getExternalModule("kryo").getImplementationClasspath().getAsURLs(),
             moduleRegistry.getExternalModule("commons-lang").getImplementationClasspath().getAsURLs(),
-            moduleRegistry.getExternalModule("junit").getImplementationClasspath().getAsURLs()
+            moduleRegistry.getExternalModule("junit").getImplementationClasspath().getAsURLs(),
+            moduleRegistry.getExternalModule("javax.inject").getImplementationClasspath().getAsURLs()
         );
     }
 

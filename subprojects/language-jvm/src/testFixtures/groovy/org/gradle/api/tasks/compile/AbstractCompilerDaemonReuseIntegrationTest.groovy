@@ -17,20 +17,20 @@
 package org.gradle.api.tasks.compile
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
 import org.gradle.integtests.fixtures.jvm.TestJvmComponent
 import org.gradle.test.fixtures.file.TestFile
 import org.junit.Assume
 import spock.lang.IgnoreIf
 
-
 abstract class AbstractCompilerDaemonReuseIntegrationTest extends AbstractIntegrationSpec {
     def compilerDaemonIdentityFileName = "build/compilerId"
     def compilerDaemonIdentityFile = file(compilerDaemonIdentityFileName)
 
     abstract String getCompileTaskType()
+
     abstract String getApplyAndConfigure()
+
     abstract TestJvmComponent getComponent()
 
     def setup() {
@@ -62,7 +62,6 @@ abstract class AbstractCompilerDaemonReuseIntegrationTest extends AbstractIntegr
         """
     }
 
-    @ToBeFixedForInstantExecution(bottomSpecs = "JavaComponentCompilerDaemonReuseIntegrationTest")
     def "reuses compiler daemons within a single project build"() {
         withSingleProjectSources()
 
@@ -76,8 +75,7 @@ abstract class AbstractCompilerDaemonReuseIntegrationTest extends AbstractIntegr
         assertOneCompilerDaemonIsCreated()
     }
 
-    @IgnoreIf({GradleContextualExecuter.parallel})
-    @ToBeFixedForInstantExecution(bottomSpecs = "JavaComponentCompilerDaemonReuseIntegrationTest")
+    @IgnoreIf({ GradleContextualExecuter.parallel })
     def "reuses compiler daemons within a multi-project build"() {
         withMultiProjectSources()
 
@@ -91,8 +89,7 @@ abstract class AbstractCompilerDaemonReuseIntegrationTest extends AbstractIntegr
         assertOneCompilerDaemonIsCreated()
     }
 
-    @IgnoreIf({GradleContextualExecuter.parallel})
-    @ToBeFixedForInstantExecution
+    @IgnoreIf({ GradleContextualExecuter.parallel })
     def "reuses compiler daemons within a composite build"() {
         Assume.assumeTrue(supportsCompositeBuilds())
 
@@ -108,8 +105,7 @@ abstract class AbstractCompilerDaemonReuseIntegrationTest extends AbstractIntegr
         assertOneCompilerDaemonIsCreated()
     }
 
-    @IgnoreIf({GradleContextualExecuter.parallel})
-    @ToBeFixedForInstantExecution(bottomSpecs = "JavaComponentCompilerDaemonReuseIntegrationTest")
+    @IgnoreIf({ GradleContextualExecuter.parallel })
     def "starts a new daemon when different options are used"() {
         withMultiProjectSources()
         buildFile << """
